@@ -1,0 +1,157 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "CoolrfulDARkness/moonkrb5/asn1"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub const APP_AP_REP : Int32 = 15
+
+pub const APP_AP_REQ : Int32 = 14
+
+pub const APP_AS_REP : Int32 = 11
+
+pub const APP_AS_REQ : Int32 = 10
+
+pub const APP_AUTHENTICATOR : Int32 = 2
+
+pub const APP_ENC_AP_REP_PART : Int32 = 27
+
+pub const APP_ENC_AS_REP_PART : Int32 = 25
+
+pub const APP_ENC_KRB_CRED_PART : Int32 = 29
+
+pub const APP_ENC_KRB_PRIV_PART : Int32 = 28
+
+pub const APP_ENC_TGS_REP_PART : Int32 = 26
+
+pub const APP_ENC_TICKET_PART : Int32 = 3
+
+pub const APP_KRB_CRED : Int32 = 22
+
+pub const APP_KRB_ERROR : Int32 = 30
+
+pub const APP_KRB_PRIV : Int32 = 21
+
+pub const APP_KRB_SAFE : Int32 = 20
+
+pub const APP_TGS_REP : Int32 = 13
+
+pub const APP_TGS_REQ : Int32 = 12
+
+pub const APP_TICKET : Int32 = 1
+
+pub fn context_field(Int32, DerValue) -> DerValue
+
+pub fn decode_application(Bytes, Int32) -> DerValue raise DerError
+
+pub fn decode_der(Bytes) -> DerValue raise DerError
+
+pub fn decode_general_string(DerValue) -> String raise DerError
+
+pub fn decode_generalized_time(DerValue) -> String raise DerError
+
+pub fn decode_int(DerValue) -> Int32 raise DerError
+
+pub fn decode_int64(DerValue) -> Int64 raise DerError
+
+pub fn decode_kerberos_flags(DerValue) -> UInt32 raise DerError
+
+pub fn decode_octet_string(DerValue) -> Bytes raise DerError
+
+pub fn decode_uint32(DerValue) -> UInt32 raise DerError
+
+pub fn encode_application(Int32, DerValue) -> Bytes
+
+pub fn encode_der(DerValue) -> Bytes
+
+pub fn encode_general_string(String) -> DerValue
+
+pub fn encode_generalized_time(String) -> DerValue raise DerError
+
+pub fn encode_int(Int32) -> DerValue
+
+pub fn encode_int64(Int64) -> DerValue
+
+pub fn encode_kerberos_flags(UInt32) -> DerValue
+
+pub fn encode_octet_string(Bytes) -> DerValue
+
+pub fn encode_uint32(UInt32) -> DerValue
+
+pub fn hex_decode(String) -> Bytes raise DerError
+
+pub fn hex_encode(Bytes) -> String
+
+pub fn peek_application_tag(Bytes) -> Int32 raise DerError
+
+pub fn validate_generalized_time(String) -> Unit raise DerError
+
+// Errors
+#derive(Eq, @debug.Debug)
+pub(all) suberror DerError {
+  UnexpectedEof
+  InvalidTag(String)
+  InvalidLength(String)
+  NonCanonicalLength
+  IndefiniteLength
+  NonCanonicalInteger
+  NonCanonicalBoolean
+  InvalidBitString(String)
+  InvalidGeneralizedTime(String)
+  TrailingBytes(Int32)
+  MaxDepthExceeded
+  TagMismatch(expected~ : String, got~ : String)
+  MissingField(String)
+  InvalidValue(String)
+}
+pub impl Show for DerError
+
+// Types and methods
+#derive(Eq, @debug.Debug)
+pub(all) enum DerValue {
+  Boolean(Bool)
+  Integer(Bytes)
+  BitString(Int32, Bytes)
+  OctetString(Bytes)
+  Null
+  Oid(Array[Int32])
+  GeneralString(String)
+  GeneralizedTime(String)
+  Sequence(Array[DerValue])
+  Set(Array[DerValue])
+  Application(Int32, DerValue)
+  Context(Int32, DerValue)
+  Raw(Tag, Bytes)
+}
+pub impl Show for DerValue
+
+pub struct SeqReader {
+  // private fields
+}
+pub fn SeqReader::finish(Self) -> Unit raise DerError
+pub fn SeqReader::new(DerValue) -> Self raise DerError
+pub fn SeqReader::read_optional(Self, Int32) -> DerValue? raise DerError
+pub fn SeqReader::read_required(Self, Int32) -> DerValue raise DerError
+
+#derive(Eq, @debug.Debug)
+pub(all) struct Tag {
+  class : TagClass
+  constructed : Bool
+  number : Int32
+}
+pub impl Show for Tag
+
+#derive(Eq, @debug.Debug)
+pub(all) enum TagClass {
+  Universal
+  Application
+  ContextSpecific
+  Private
+}
+pub impl Show for TagClass
+
+// Type aliases
+
+// Traits

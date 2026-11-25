@@ -1,7 +1,7 @@
 ///|
 /// Errors raised during strict ASN.1 DER decoding, validation, or helper conversion.
 #derive(Eq, Debug)
-pub suberror DerError {
+pub(all) suberror DerError {
   UnexpectedEof
   InvalidTag(String)
   InvalidLength(String)
