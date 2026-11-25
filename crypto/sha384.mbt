@@ -122,7 +122,7 @@ fn sha384_finish_from_state(
 ) -> Unit {
   let len = data.length()
   let mut off = 0
-  while off + 128 <= len {
+  while len - off >= 128 {
     for i = 0; i < 16; i = i + 1 {
       w[i] = read_be_u64(data, off + i * 8)
     }
@@ -242,7 +242,7 @@ pub fn pbkdf2_hmac_sha384(
   let h = FixedArray::make(8, 0UL)
   let u = FixedArray::make(8, 0UL)
   let t = FixedArray::make(6, 0UL)
-  let blocks = (dk_len + 47) / 48
+  let blocks = (dk_len - 1) / 48 + 1
   let out = FixedArray::make(dk_len, b'\x00')
   let salt_len = salt.length()
   let salt_block = FixedArray::make(salt_len + 4, b'\x00')
@@ -334,7 +334,7 @@ pub fn pbkdf2_hmac_sha384(
       write_be_u64(tmp48, k * 8, t[k])
     }
     let base_off = (blk - 1) * 48
-    let take = if base_off + 48 <= dk_len { 48 } else { dk_len - base_off }
+    let take = if dk_len - base_off >= 48 { 48 } else { dk_len - base_off }
     for k = 0; k < take; k = k + 1 {
       out[base_off + k] = tmp48[k]
     }

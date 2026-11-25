@@ -66,6 +66,8 @@ pub fn encode_application(Int32, DerValue) -> Bytes
 
 pub fn encode_der(DerValue) -> Bytes
 
+pub fn encode_der_strict(DerValue) -> Bytes raise DerError
+
 pub fn encode_general_string(String) -> DerValue
 
 pub fn encode_generalized_time(String) -> DerValue raise DerError

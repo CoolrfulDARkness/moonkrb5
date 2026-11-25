@@ -78,6 +78,8 @@ pub fn string_to_key(Enctype, Bytes, Bytes, Bytes?) -> Bytes raise CryptoError
 
 pub fn verify_checksum(ChecksumType, Bytes, Int32, Bytes, Bytes) -> Bool raise CryptoError
 
+pub fn verify_checksum_for_enctype(Enctype, ChecksumType, Bytes, Int32, Bytes, Bytes) -> Bool raise CryptoError
+
 // Errors
 #derive(Eq, @debug.Debug)
 pub suberror CryptoError {
@@ -103,14 +105,12 @@ pub(all) enum ChecksumType {
 }
 pub fn ChecksumType::from_int(Int32) -> Self raise CryptoError
 pub fn ChecksumType::mac_size(Self) -> Int32
+pub fn ChecksumType::required_enctype(Self) -> Enctype
 pub fn ChecksumType::to_int(Self) -> Int32
 pub impl Show for ChecksumType
 
 pub struct DeterministicRng {
-  state_key : Bytes
-  mut counter : UInt64
-  buf : FixedArray[Byte]
-  mut pos : Int32
+  // private fields
 }
 pub fn DeterministicRng::new(Bytes) -> Self
 pub fn DeterministicRng::next_bytes(Self, Int32) -> Bytes

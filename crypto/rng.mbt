@@ -1,10 +1,10 @@
 ///|
 /// Deterministic Sans-I/O pseudorandom byte generator based on SHA-256 in counter mode.
 pub struct DeterministicRng {
-  state_key : Bytes
-  mut counter : UInt64
-  buf : FixedArray[Byte]
-  mut pos : Int32
+  priv state_key : Bytes
+  priv mut counter : UInt64
+  priv buf : FixedArray[Byte]
+  priv mut pos : Int32
 }
 
 ///|

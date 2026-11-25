@@ -218,6 +218,18 @@ pub fn ChecksumType::mac_size(self : ChecksumType) -> Int32 {
 }
 
 ///|
+/// Return the Kerberos 5 encryption type required for this keyed checksum type
+/// per RFC 3962 §6 and RFC 8009 §6.
+pub fn ChecksumType::required_enctype(self : ChecksumType) -> Enctype {
+  match self {
+    HmacSha1_96Aes128 => Aes128CtsHmacSha1_96
+    HmacSha1_96Aes256 => Aes256CtsHmacSha1_96
+    HmacSha256_128Aes128 => Aes128CtsHmacSha256_128
+    HmacSha384_192Aes256 => Aes256CtsHmacSha384_192
+  }
+}
+
+///|
 /// Constant-time equality comparison for byte slices to mitigate timing side channels.
 pub fn ct_eq(a : Bytes, b : Bytes) -> Bool {
   let len = a.length()

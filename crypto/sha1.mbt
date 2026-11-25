@@ -90,7 +90,7 @@ fn sha1_finish_from_state(
 ) -> Unit {
   let len = data.length()
   let mut off = 0
-  while off + 64 <= len {
+  while len - off >= 64 {
     for i = 0; i < 16; i = i + 1 {
       w[i] = read_be_u32(data, off + i * 4)
     }
@@ -211,7 +211,7 @@ pub fn pbkdf2_hmac_sha1(
   let h = FixedArray::make(5, 0U)
   let u = FixedArray::make(5, 0U)
   let t = FixedArray::make(5, 0U)
-  let blocks = (dk_len + 19) / 20
+  let blocks = (dk_len - 1) / 20 + 1
   let out = FixedArray::make(dk_len, b'\x00')
   let salt_len = salt.length()
   let salt_block = FixedArray::make(salt_len + 4, b'\x00')
@@ -302,7 +302,7 @@ pub fn pbkdf2_hmac_sha1(
       write_be_u32(tmp20, k * 4, t[k])
     }
     let base_off = (blk - 1) * 20
-    let take = if base_off + 20 <= dk_len { 20 } else { dk_len - base_off }
+    let take = if dk_len - base_off >= 20 { 20 } else { dk_len - base_off }
     for k = 0; k < take; k = k + 1 {
       out[base_off + k] = tmp20[k]
     }

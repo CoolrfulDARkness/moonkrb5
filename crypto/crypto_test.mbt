@@ -1132,3 +1132,203 @@ test "AES-256-CTS non-zero IV round-trip and KDF error boundaries" {
   }
   assert_true(bad_bits is Err(InvalidInput(_)))
 }
+
+///|
+test "security regressions: s2kparams fallback/cap, usage>0, verify_checksum_for_enctype, n_fold large input, aes key err" {
+  // 1. Empty s2kparams = Some(b"") falls back to default iterations (RFC 3962: 4096, RFC 8009: 32768)
+  let pw = b"password"
+  let salt = b"ATHENA.MIT.EDUraeburn"
+  assert_eq(
+    @crypto.string_to_key(@crypto.Aes128CtsHmacSha1_96, pw, salt, Some(b"")),
+    @crypto.string_to_key(@crypto.Aes128CtsHmacSha1_96, pw, salt, None),
+  )
+  assert_eq(
+    @crypto.string_to_key(@crypto.Aes256CtsHmacSha1_96, pw, salt, Some(b"")),
+    @crypto.string_to_key(@crypto.Aes256CtsHmacSha1_96, pw, salt, None),
+  )
+  let rfc8009_salt = from_hex(
+    "10 DF 9D D7 83 E5 BC 8A CE A1 73 0E 74 35 5F 61 41 54 48 45 4E 41 2E 4D 49 54 2E 45 44 55 72 61 65 62 75 72 6E",
+  )
+  assert_eq(
+    @crypto.string_to_key(
+      @crypto.Aes128CtsHmacSha256_128,
+      pw,
+      rfc8009_salt,
+      Some(b""),
+    ),
+    from_hex("08 9B CA 48 B1 05 EA 6E A7 7C A5 D2 F3 9D C5 E7"),
+  )
+
+  // 2. Iteration count > 1_000_000U rejected (tightened cap)
+  let cap_over : Result[Bytes, @crypto.CryptoError] = Ok(
+    @crypto.string_to_key(
+      @crypto.Aes128CtsHmacSha1_96,
+      pw,
+      salt,
+      Some(u32_be_bytes(1_000_001)),
+    ),
+  ) catch {
+    e => Err(e)
+  }
+  assert_true(cap_over is Err(InvalidIterationCount))
+  let cap_high : Result[Bytes, @crypto.CryptoError] = Ok(
+    @crypto.string_to_key(
+      @crypto.Aes256CtsHmacSha384_192,
+      pw,
+      salt,
+      Some(u32_be_bytes(5_000_000)),
+    ),
+  ) catch {
+    e => Err(e)
+  }
+  assert_true(cap_high is Err(InvalidIterationCount))
+
+  // 3. usage <= 0 rejected in encrypt, decrypt, make_checksum, verify_checksum, verify_checksum_for_enctype
+  let key16 = Bytes::make(16, b'\x11')
+  let conf = Bytes::make(16, b'\x22')
+  let dummy_ct = Bytes::make(48, b'\x33')
+  let bad_usages : Array[Int32] = [0, -1, -2147483648]
+  for i = 0; i < bad_usages.length(); i = i + 1 {
+    let u = bad_usages[i]
+    let e_res : Result[Bytes, @crypto.CryptoError] = Ok(
+      @crypto.encrypt(@crypto.Aes128CtsHmacSha256_128, key16, u, b"hi", conf),
+    ) catch {
+      e => Err(e)
+    }
+    assert_true(e_res is Err(InvalidInput(_)))
+    let d_res : Result[Bytes, @crypto.CryptoError] = Ok(
+      @crypto.decrypt(@crypto.Aes128CtsHmacSha256_128, key16, u, dummy_ct),
+    ) catch {
+      e => Err(e)
+    }
+    assert_true(d_res is Err(InvalidInput(_)))
+    let mc_res : Result[Bytes, @crypto.CryptoError] = Ok(
+      @crypto.make_checksum(@crypto.HmacSha256_128Aes128, key16, u, b"hi"),
+    ) catch {
+      e => Err(e)
+    }
+    assert_true(mc_res is Err(InvalidInput(_)))
+    let vc_res : Result[Bool, @crypto.CryptoError] = Ok(
+      @crypto.verify_checksum(
+        @crypto.HmacSha256_128Aes128,
+        key16,
+        u,
+        b"hi",
+        Bytes::make(16, b'\x00'),
+      ),
+    ) catch {
+      e => Err(e)
+    }
+    assert_true(vc_res is Err(InvalidInput(_)))
+    let vce_res : Result[Bool, @crypto.CryptoError] = Ok(
+      @crypto.verify_checksum_for_enctype(
+        @crypto.Aes128CtsHmacSha256_128,
+        @crypto.HmacSha256_128Aes128,
+        key16,
+        u,
+        b"hi",
+        Bytes::make(16, b'\x00'),
+      ),
+    ) catch {
+      e => Err(e)
+    }
+    assert_true(vce_res is Err(InvalidInput(_)))
+  }
+
+  // 4. ChecksumType::required_enctype & verify_checksum_for_enctype cross-algorithm downgrade rejection
+  assert_eq(
+    @crypto.HmacSha1_96Aes128.required_enctype(),
+    @crypto.Aes128CtsHmacSha1_96,
+  )
+  assert_eq(
+    @crypto.HmacSha1_96Aes256.required_enctype(),
+    @crypto.Aes256CtsHmacSha1_96,
+  )
+  assert_eq(
+    @crypto.HmacSha256_128Aes128.required_enctype(),
+    @crypto.Aes128CtsHmacSha256_128,
+  )
+  assert_eq(
+    @crypto.HmacSha384_192Aes256.required_enctype(),
+    @crypto.Aes256CtsHmacSha384_192,
+  )
+  let msg = b"cross-enctype-checksum-test"
+  let sha1_mac16 = @crypto.make_checksum(
+    @crypto.HmacSha1_96Aes128,
+    key16,
+    @crypto.KU_AP_REQ_AUTH_CKSUM,
+    msg,
+  )
+  assert_true(
+    @crypto.verify_checksum_for_enctype(
+      @crypto.Aes128CtsHmacSha1_96,
+      @crypto.HmacSha1_96Aes128,
+      key16,
+      @crypto.KU_AP_REQ_AUTH_CKSUM,
+      msg,
+      sha1_mac16,
+    ),
+  )
+  // Attempt to verify an AES128-SHA256 session key using downgraded HmacSha1_96Aes128
+  let downgrade128 : Result[Bool, @crypto.CryptoError] = Ok(
+    @crypto.verify_checksum_for_enctype(
+      @crypto.Aes128CtsHmacSha256_128,
+      @crypto.HmacSha1_96Aes128,
+      key16,
+      @crypto.KU_AP_REQ_AUTH_CKSUM,
+      msg,
+      sha1_mac16,
+    ),
+  ) catch {
+    e => Err(e)
+  }
+  assert_true(downgrade128 is Err(UnsupportedChecksumType(15)))
+  // Attempt to verify an AES256-SHA384 session key using downgraded HmacSha1_96Aes256
+  let key32 = Bytes::make(32, b'\x44')
+  let sha1_mac32 = @crypto.make_checksum(
+    @crypto.HmacSha1_96Aes256,
+    key32,
+    @crypto.KU_AP_REQ_AUTH_CKSUM,
+    msg,
+  )
+  let downgrade256 : Result[Bool, @crypto.CryptoError] = Ok(
+    @crypto.verify_checksum_for_enctype(
+      @crypto.Aes256CtsHmacSha384_192,
+      @crypto.HmacSha1_96Aes256,
+      key32,
+      @crypto.KU_AP_REQ_AUTH_CKSUM,
+      msg,
+      sha1_mac32,
+    ),
+  ) catch {
+    e => Err(e)
+  }
+  assert_true(downgrade256 is Err(UnsupportedChecksumType(16)))
+
+  // 5. n_fold large input without Int32 overflow:
+  // For 65537 (Fermat prime, coprime to 16) copies of 0x01, each rep=0..15 right-rotates
+  // by 13*rep bits (5*rep mod 8) giving byte cycle [0x01,0x08,0x40,0x02,0x10,0x80,0x04,0x20].
+  // Since 65537 = 4096*16 + 1, the 4096 full chunks across all 16 reps sum to 0 (mod 2^128-1),
+  // leaving the exact single boundary chunk below.
+  let large_in = Bytes::make(65537, b'\x01')
+  assert_eq(
+    @crypto.n_fold(large_in, 128),
+    from_hex("01084002108004200108400210800420"),
+  )
+  assert_eq(
+    @crypto.n_fold(Bytes::make(65537, b'\xFF'), 128),
+    Bytes::make(16, b'\xFF'),
+  )
+
+  // 6. AES invalid key length raises InvalidInput (not misleading InvalidKeyLength(expected=16))
+  let bad_aes_key : Result[Bytes, @crypto.CryptoError] = Ok(
+    @crypto.aes_cts_encrypt(
+      Bytes::make(24, b'\x01'),
+      Bytes::make(16, b'\x00'),
+      Bytes::make(16, b'\x02'),
+    ),
+  ) catch {
+    e => Err(e)
+  }
+  assert_true(bad_aes_key is Err(InvalidInput(_)))
+}

@@ -1,7 +1,14 @@
 ///|
 fn write_base128(out : Array[Byte], value : Int32) -> Unit {
+  if value < 0 {
+    // Emit a deliberately non-canonical leading 0x80 sequence so negative
+    // values can never be silently truncated into valid small tags or OID arcs.
+    out.push(b'\x80')
+    out.push(b'\x00')
+    return
+  }
   if value < 0x80 {
-    out.push((value & 0x7F).to_byte())
+    out.push(value.to_byte())
     return
   }
   let tmp : Array[Int32] = []
@@ -127,7 +134,12 @@ fn write_der_into(out : Array[Byte], val : DerValue) -> Unit {
     Oid(arcs) => {
       let body : Array[Byte] = []
       if arcs.length() >= 2 {
-        write_base128(body, arcs[0] * 40 + arcs[1])
+        let first_sub = arcs[0].to_int64() * 40L + arcs[1].to_int64()
+        if arcs[0] < 0 || arcs[1] < 0 || first_sub > 2147483647L {
+          write_base128(body, -1)
+        } else {
+          write_base128(body, first_sub.to_int())
+        }
         for i = 2; i < arcs.length(); i = i + 1 {
           write_base128(body, arcs[i])
         }
@@ -203,10 +215,190 @@ fn write_der_into(out : Array[Byte], val : DerValue) -> Unit {
 }
 
 ///|
+fn compare_bytes_lex(a : Array[Byte], b : Array[Byte]) -> Int32 {
+  let alen = a.length()
+  let blen = b.length()
+  let min_len = if alen < blen { alen } else { blen }
+  for i = 0; i < min_len; i = i + 1 {
+    let ba = a[i].to_int()
+    let bb = b[i].to_int()
+    if ba != bb {
+      return ba - bb
+    }
+  }
+  alen - blen
+}
+
+///|
+fn write_der_strict_into(
+  out : Array[Byte],
+  val : DerValue,
+) -> Unit raise DerError {
+  match val {
+    Boolean(b) => {
+      write_tag(out, Universal, false, TAG_BOOLEAN)
+      write_length(out, 1)
+      out.push(if b { b'\xFF' } else { b'\x00' })
+    }
+    Integer(raw) => {
+      validate_canonical_integer(raw)
+      write_tag(out, Universal, false, TAG_INTEGER)
+      write_length(out, raw.length())
+      write_bytes(out, raw)
+    }
+    BitString(unused, data) => {
+      validate_bit_string(unused, data)
+      write_tag(out, Universal, false, TAG_BIT_STRING)
+      write_length(out, 1 + data.length())
+      out.push((unused & 0xFF).to_byte())
+      write_bytes(out, data)
+    }
+    OctetString(data) => {
+      write_tag(out, Universal, false, TAG_OCTET_STRING)
+      write_length(out, data.length())
+      write_bytes(out, data)
+    }
+    Null => {
+      write_tag(out, Universal, false, TAG_NULL)
+      write_length(out, 0)
+    }
+    Oid(arcs) => {
+      if arcs.length() < 2 {
+        raise DerError::InvalidValue("OID must have at least 2 arcs")
+      }
+      let a0 = arcs[0]
+      let a1 = arcs[1]
+      if a0 < 0 || a0 > 2 {
+        raise DerError::InvalidValue("OID first arc must be 0, 1, or 2: \{a0}")
+      }
+      if a1 < 0 {
+        raise DerError::InvalidValue("OID arc must be non-negative: \{a1}")
+      }
+      if a0 < 2 && a1 >= 40 {
+        raise DerError::InvalidValue(
+          "OID second arc must be < 40 when first arc is \{a0}: \{a1}",
+        )
+      }
+      let first_sub = a0.to_int64() * 40L + a1.to_int64()
+      if first_sub > 2147483647L {
+        raise DerError::InvalidValue("OID first subidentifier overflow")
+      }
+      let body : Array[Byte] = []
+      write_base128(body, first_sub.to_int())
+      for i = 2; i < arcs.length(); i = i + 1 {
+        if arcs[i] < 0 {
+          raise DerError::InvalidValue(
+            "OID arc must be non-negative: \{arcs[i]}",
+          )
+        }
+        write_base128(body, arcs[i])
+      }
+      write_tag(out, Universal, false, TAG_OID)
+      write_length(out, body.length())
+      for b in body {
+        out.push(b)
+      }
+    }
+    GeneralString(s) => {
+      let encoded = encode_utf8(s)
+      write_tag(out, Universal, false, TAG_GENERAL_STRING)
+      write_length(out, encoded.length())
+      for b in encoded {
+        out.push(b)
+      }
+    }
+    GeneralizedTime(s) => {
+      validate_generalized_time(s)
+      let encoded = encode_utf8(s)
+      write_tag(out, Universal, false, TAG_GENERALIZED_TIME)
+      write_length(out, encoded.length())
+      for b in encoded {
+        out.push(b)
+      }
+    }
+    Sequence(items) => {
+      let body : Array[Byte] = []
+      for item in items {
+        write_der_strict_into(body, item)
+      }
+      write_tag(out, Universal, true, TAG_SEQUENCE)
+      write_length(out, body.length())
+      for b in body {
+        out.push(b)
+      }
+    }
+    Set(items) => {
+      let encoded_items : Array[Array[Byte]] = []
+      for item in items {
+        let item_buf : Array[Byte] = []
+        write_der_strict_into(item_buf, item)
+        encoded_items.push(item_buf)
+      }
+      encoded_items.sort_by(compare_bytes_lex)
+      let body : Array[Byte] = []
+      for item_buf in encoded_items {
+        for b in item_buf {
+          body.push(b)
+        }
+      }
+      write_tag(out, Universal, true, TAG_SET)
+      write_length(out, body.length())
+      for b in body {
+        out.push(b)
+      }
+    }
+    Application(tag_num, inner) => {
+      if tag_num < 0 {
+        raise DerError::InvalidTag(
+          "negative APPLICATION tag number: \{tag_num}",
+        )
+      }
+      let body : Array[Byte] = []
+      write_der_strict_into(body, inner)
+      write_tag(out, Application, true, tag_num)
+      write_length(out, body.length())
+      for b in body {
+        out.push(b)
+      }
+    }
+    Context(tag_num, inner) => {
+      if tag_num < 0 {
+        raise DerError::InvalidTag("negative CONTEXT tag number: \{tag_num}")
+      }
+      let body : Array[Byte] = []
+      write_der_strict_into(body, inner)
+      write_tag(out, ContextSpecific, true, tag_num)
+      write_length(out, body.length())
+      for b in body {
+        out.push(b)
+      }
+    }
+    Raw(tag, data) => {
+      if tag.number < 0 {
+        raise DerError::InvalidTag("negative tag number: \{tag.number}")
+      }
+      write_tag(out, tag.class, tag.constructed, tag.number)
+      write_length(out, data.length())
+      write_bytes(out, data)
+    }
+  }
+}
+
+///|
 /// Encode a `DerValue` into canonical ASN.1 DER bytes.
 pub fn encode_der(val : DerValue) -> Bytes {
   let out : Array[Byte] = []
   write_der_into(out, val)
+  Bytes::from_array(out)
+}
+
+///|
+/// Strictly validate and encode a `DerValue` into canonical ASN.1 DER bytes.
+/// Rejects negative tag numbers, invalid/overflowing OIDs, non-canonical
+/// integers/bit strings/timestamps, and sorts `SET` elements in DER byte order.
+pub fn encode_der_strict(val : DerValue) -> Bytes raise DerError {
+  let out : Array[Byte] = []
+  write_der_strict_into(out, val)
   Bytes::from_array(out)
 }
 

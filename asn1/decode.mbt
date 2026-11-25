@@ -385,6 +385,9 @@ fn decode_tlv(
           if tag.constructed {
             raise DerError::InvalidTag("GeneralizedTime must be primitive")
           }
+          if content_len != 15 {
+            raise DerError::InvalidGeneralizedTime("expected 15 bytes")
+          }
           let sb = StringBuilder()
           for i = content_start; i < content_end; i = i + 1 {
             let b = data[i].to_int()
@@ -573,8 +576,8 @@ pub fn decode_kerberos_flags(v : DerValue) -> UInt32 raise DerError {
   match v {
     BitString(unused, data) => {
       validate_bit_string(unused, data)
-      let total_bits = data.length() * 8 - unused
-      if total_bits < 32 {
+      if data.length() < 4 || (data.length() == 4 && unused != 0) {
+        let total_bits = data.length() * 8 - unused
         raise DerError::InvalidBitString(
           "KerberosFlags requires at least 32 bits, got \{total_bits}",
         )

@@ -22,25 +22,27 @@ pub fn n_fold(input : Bytes, out_bits : Int32) -> Bytes {
   if in_len == 0 {
     return Bytes::make(out_len, b'\x00')
   }
-  let in_bits = in_len * 8
-  let lcm_bytes = in_len / gcd(in_len, out_len) * out_len
+  let in_len64 = in_len.to_int64()
+  let out_len64 = out_len.to_int64()
+  let in_bits = in_len64 * 8L
+  let num_chunks = in_len / gcd(in_len, out_len)
   let acc = FixedArray::make(out_len, 0)
   let chunk = FixedArray::make(out_len, 0)
-  let num_chunks = lcm_bytes / out_len
   for c = 0; c < num_chunks; c = c + 1 {
-    let chunk_start = c * out_len
+    let chunk_start = c.to_int64() * out_len64
     for j = 0; j < out_len; j = j + 1 {
-      let pos = chunk_start + j
-      let rep = pos / in_len
-      let off = pos % in_len
+      let pos = chunk_start + j.to_int64()
+      let rep = pos / in_len64
+      let off = pos % in_len64
       // Right rotation of `input` by (13 * rep) bits:
       // byte at `off` in rotated input starts at bit `(off * 8 - 13 * rep) mod in_bits`
-      let rot_bits = 13 * rep % in_bits
-      let src_bit = (off * 8 - rot_bits + in_bits) % in_bits
-      let src_byte = src_bit / 8
-      let bit_off = src_bit % 8
+      let rot_bits = 13L * rep % in_bits
+      let src_bit = (off * 8L - rot_bits + in_bits) % in_bits
+      let src_byte = (src_bit / 8L).to_int()
+      let bit_off = (src_bit % 8L).to_int()
       let b0 = input[src_byte].to_int()
-      let b1 = input[(src_byte + 1) % in_len].to_int()
+      let next_byte = if src_byte + 1 == in_len { 0 } else { src_byte + 1 }
+      let b1 = input[next_byte].to_int()
       chunk[j] = ((b0 << bit_off) | (b1 >> (8 - bit_off))) & 0xFF
     }
     // 1's-complement addition: acc = acc +_1 chunk
@@ -177,23 +179,31 @@ pub fn kdf_hmac_sha2(
 }
 
 ///|
+fn default_s2k_iterations(etype : Enctype) -> Int32 {
+  match etype {
+    Aes128CtsHmacSha1_96 | Aes256CtsHmacSha1_96 => 4096
+    Aes128CtsHmacSha256_128 | Aes256CtsHmacSha384_192 => 32768
+  }
+}
+
+///|
 fn parse_s2k_iterations(
   etype : Enctype,
   s2kparams : Bytes?,
 ) -> Int32 raise CryptoError {
   match s2kparams {
-    None =>
-      match etype {
-        Aes128CtsHmacSha1_96 | Aes256CtsHmacSha1_96 => 4096
-        Aes128CtsHmacSha256_128 | Aes256CtsHmacSha384_192 => 32768
-      }
+    None => default_s2k_iterations(etype)
     Some(params) => {
+      if params.length() == 0 {
+        return default_s2k_iterations(etype)
+      }
       if params.length() != 4 {
-        raise InvalidS2kParams("s2kparams must be exactly 4 bytes")
+        raise InvalidS2kParams("s2kparams must be 0 or 4 bytes")
       }
       let iter_u = read_be_u32(params, 0)
-      // RFC 3962 §4: 0x00000000 means 2^32 iterations (unbounded DoS); enforce safe upper bound >= 50,000.
-      if iter_u == 0U || iter_u > 10_000_000U {
+      // RFC 3962 §4 / RFC 8009 §4: 0x00000000 means 2^32 iterations (unbounded DoS);
+      // enforce a safe upper bound of 1_000_000 iterations.
+      if iter_u == 0U || iter_u > 1_000_000U {
         raise InvalidIterationCount
       }
       iter_u.reinterpret_as_int()
@@ -249,6 +259,9 @@ pub fn encrypt(
   plaintext : Bytes,
   confounder : Bytes,
 ) -> Bytes raise CryptoError {
+  if usage <= 0 {
+    raise CryptoError::InvalidInput("key usage must be positive")
+  }
   let ksize = etype.key_size()
   if key.length() != ksize {
     raise InvalidKeyLength(expected=ksize, got=key.length())
@@ -299,6 +312,9 @@ pub fn decrypt(
   usage : Int32,
   ciphertext : Bytes,
 ) -> Bytes raise CryptoError {
+  if usage <= 0 {
+    raise CryptoError::InvalidInput("key usage must be positive")
+  }
   let ksize = etype.key_size()
   if key.length() != ksize {
     raise InvalidKeyLength(expected=ksize, got=key.length())
@@ -326,26 +342,26 @@ pub fn decrypt(
       bytes_slice(plain_with_conf, 16, plain_with_conf.length() - 16)
     }
     Aes128CtsHmacSha256_128 => {
-      // RFC 8009: verify MAC before decrypting
-      let ke = kdf_hmac_sha2(etype, key, ke_label, None, 128)
+      // RFC 8009: verify MAC before deriving Ke or decrypting
       let ki = kdf_hmac_sha2(etype, key, ki_label, None, 128)
       let mac_input = bytes_concat(zero_iv, c1)
       let expected_h1 = bytes_slice(hmac_sha256(ki, mac_input), 0, 16)
       if !ct_eq(h1, expected_h1) {
         raise IntegrityCheckFailed
       }
+      let ke = kdf_hmac_sha2(etype, key, ke_label, None, 128)
       let plain_with_conf = aes_cts_decrypt(ke, zero_iv, c1)
       bytes_slice(plain_with_conf, 16, plain_with_conf.length() - 16)
     }
     Aes256CtsHmacSha384_192 => {
-      // RFC 8009: verify MAC before decrypting
-      let ke = kdf_hmac_sha2(etype, key, ke_label, None, 256)
+      // RFC 8009: verify MAC before deriving Ke or decrypting
       let ki = kdf_hmac_sha2(etype, key, ki_label, None, 192)
       let mac_input = bytes_concat(zero_iv, c1)
       let expected_h1 = bytes_slice(hmac_sha384(ki, mac_input), 0, 24)
       if !ct_eq(h1, expected_h1) {
         raise IntegrityCheckFailed
       }
+      let ke = kdf_hmac_sha2(etype, key, ke_label, None, 256)
       let plain_with_conf = aes_cts_decrypt(ke, zero_iv, c1)
       bytes_slice(plain_with_conf, 16, plain_with_conf.length() - 16)
     }
@@ -360,6 +376,9 @@ pub fn make_checksum(
   usage : Int32,
   data : Bytes,
 ) -> Bytes raise CryptoError {
+  if usage <= 0 {
+    raise CryptoError::InvalidInput("key usage must be positive")
+  }
   let kc_label = make_usage_constant(usage, b'\x99')
   match cksum_type {
     HmacSha1_96Aes128 => {
@@ -402,6 +421,29 @@ pub fn verify_checksum(
   data : Bytes,
   expected : Bytes,
 ) -> Bool raise CryptoError {
+  if usage <= 0 {
+    raise CryptoError::InvalidInput("key usage must be positive")
+  }
   let actual = make_checksum(cksum_type, key, usage, data)
   ct_eq(actual, expected)
+}
+
+///|
+/// Verify a Kerberos 5 keyed checksum while enforcing that `cksum_type` matches
+/// the mandatory checksum type of `etype` (preventing cross-algorithm downgrade).
+pub fn verify_checksum_for_enctype(
+  etype : Enctype,
+  cksum_type : ChecksumType,
+  key : Bytes,
+  usage : Int32,
+  data : Bytes,
+  expected : Bytes,
+) -> Bool raise CryptoError {
+  if usage <= 0 {
+    raise CryptoError::InvalidInput("key usage must be positive")
+  }
+  if cksum_type != etype.default_checksum_type() {
+    raise UnsupportedChecksumType(cksum_type.to_int())
+  }
+  verify_checksum(cksum_type, key, usage, data, expected)
 }

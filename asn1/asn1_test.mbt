@@ -824,3 +824,102 @@ test "realistic RFC 4120 Ticket DER round-trip and hex helpers" {
     expect_err(() => @asn1.hex_decode("0g")) is @asn1.DerError::InvalidValue(_),
   )
 }
+
+///|
+test "security regressions: encode_der_strict, write_base128 defense, oversized GeneralizedTime" {
+  // 1. encode_der_strict rejects negative tag numbers
+  assert_true(
+    expect_err(() => {
+      @asn1.encode_der_strict(@asn1.context_field(-1, @asn1.DerValue::Null))
+    })
+    is @asn1.DerError::InvalidTag(_),
+  )
+  assert_true(
+    expect_err(() => {
+      @asn1.encode_der_strict(
+        @asn1.DerValue::Application(-5, @asn1.DerValue::Null),
+      )
+    })
+    is @asn1.DerError::InvalidTag(_),
+  )
+  assert_true(
+    expect_err(() => {
+      @asn1.encode_der_strict(
+        @asn1.DerValue::Raw(
+          { class: @asn1.TagClass::Private, constructed: false, number: -1, },
+          b"",
+        ),
+      )
+    })
+    is @asn1.DerError::InvalidTag(_),
+  )
+
+  // 2. encode_der_strict rejects malformed & overflowing OIDs
+  let bad_oids : Array[Array[Int32]] = [
+    [],
+    [1],
+    [-1, 1],
+    [3, 1],
+    [0, 40],
+    [1, 40],
+    [1, -1],
+    [1, 2, -3],
+    [2, 2147483640],
+  ]
+  for arcs in bad_oids {
+    assert_true(
+      expect_err(() => @asn1.encode_der_strict(@asn1.DerValue::Oid(arcs)))
+      is @asn1.DerError::InvalidValue(_),
+    )
+  }
+
+  // Valid OIDs pass encode_der_strict and round-trip cleanly
+  let ok_oid = @asn1.DerValue::Oid([1, 3, 6, 1, 5, 2])
+  assert_eq(@asn1.decode_der(@asn1.encode_der_strict(ok_oid)), ok_oid)
+  let ok_arc2 = @asn1.DerValue::Oid([2, 999, 3])
+  assert_eq(@asn1.decode_der(@asn1.encode_der_strict(ok_arc2)), ok_arc2)
+
+  // 3. encode_der_strict sorts SET elements in canonical DER byte order
+  let unsorted_set = @asn1.DerValue::Set([
+    @asn1.encode_octet_string(b"a"), // 04 01 61
+    @asn1.encode_int(2), // 02 01 02
+    @asn1.encode_int(1), // 02 01 01
+  ])
+  let sorted_wire = @asn1.encode_der_strict(unsorted_set)
+  assert_eq(@asn1.hex_encode(sorted_wire), "3109020101020102040161")
+
+  // 4. encode_der write_base128 defense: negative tag/arc never smuggles valid tag 31 / arc 31
+  let smuggle_tag = @asn1.encode_der(
+    @asn1.context_field(-97, @asn1.DerValue::Null),
+  )
+  assert_true(
+    expect_err(() => @asn1.decode_der(smuggle_tag))
+    is @asn1.DerError::InvalidTag(_),
+  )
+  let smuggle_oid = @asn1.encode_der(@asn1.DerValue::Oid([1, 2, -97]))
+  assert_true(
+    expect_err(() => @asn1.decode_der(smuggle_oid))
+    is @asn1.DerError::InvalidValue(_),
+  )
+
+  // 5. Large malformed GeneralizedTime rejected immediately without copying
+  let big_gt_payload = Bytes::make(1024, b'2')
+  // Tag 0x18 (GeneralizedTime), Length 0x82 0x04 0x00 (1024 bytes), followed by 1024 bytes
+  let big_gt_wire = Bytes::makei(4 + 1024, fn(i) {
+    if i == 0 {
+      b'\x18'
+    } else if i == 1 {
+      b'\x82'
+    } else if i == 2 {
+      b'\x04'
+    } else if i == 3 {
+      b'\x00'
+    } else {
+      big_gt_payload[i - 4]
+    }
+  })
+  assert_true(
+    expect_err(() => @asn1.decode_der(big_gt_wire))
+    is @asn1.DerError::InvalidGeneralizedTime(_),
+  )
+}

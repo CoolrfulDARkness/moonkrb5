@@ -51,12 +51,8 @@ let aes_rcon : FixedArray[Int32] = [
 
 ///|
 fn xtime(a : Int32) -> Int32 {
-  let shifted = a << 1
-  if (a & 0x80) != 0 {
-    (shifted ^ 0x1b) & 0xFF
-  } else {
-    shifted & 0xFF
-  }
+  let mask = -((a >> 7) & 1)
+  ((a << 1) ^ (0x1b & mask)) & 0xFF
 }
 
 ///|
@@ -65,9 +61,7 @@ fn gmul(a : Int32, b : Int32) -> Int32 {
   let mut aa = a
   let mut bb = b
   for _i = 0; _i < 8; _i = _i + 1 {
-    if (bb & 1) != 0 {
-      p = p ^ aa
-    }
+    p = p ^ (aa & -(bb & 1))
     aa = xtime(aa)
     bb = bb >> 1
   }
@@ -84,7 +78,7 @@ priv struct AesKey {
 fn aes_expand_key(key : Bytes) -> AesKey raise CryptoError {
   let klen = key.length()
   if klen != 16 && klen != 32 {
-    raise InvalidKeyLength(expected=16, got=klen)
+    raise InvalidInput("AES key must be 16 or 32 bytes, got \{klen}")
   }
   let nk = klen / 4
   let nr = nk + 6
