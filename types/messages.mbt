@@ -615,8 +615,123 @@ pub fn KdcReq::encode_tgs_req(self : KdcReq) -> Bytes raise @asn1.DerError {
 }
 
 ///|
+fn read_raw_tlv_header(
+  data : Bytes,
+  pos : Int32,
+  end : Int32,
+) -> (Int32, Bool, Int32, Int32, Int32) raise @asn1.DerError {
+  if pos >= end {
+    raise @asn1.DerError::UnexpectedEof
+  }
+  let b0 = data[pos].to_int()
+  let class_bits = (b0 >> 6) & 0x03
+  let constructed = (b0 & 0x20) != 0
+  let low = b0 & 0x1F
+  let mut cur = pos + 1
+  let tag_num = if low < 31 {
+    low
+  } else {
+    if cur >= end {
+      raise @asn1.DerError::UnexpectedEof
+    }
+    let mut num = 0
+    while true {
+      if cur >= end {
+        raise @asn1.DerError::UnexpectedEof
+      }
+      let b = data[cur].to_int()
+      cur += 1
+      if num > 0x00FF_FFFF {
+        raise @asn1.DerError::InvalidTag("high tag number overflow")
+      }
+      num = (num << 7) | (b & 0x7F)
+      if (b & 0x80) == 0 {
+        break
+      }
+    }
+    num
+  }
+  if cur >= end {
+    raise @asn1.DerError::UnexpectedEof
+  }
+  let l0 = data[cur].to_int()
+  cur += 1
+  let len = if l0 < 0x80 {
+    l0
+  } else if l0 == 0x80 {
+    raise @asn1.DerError::IndefiniteLength
+  } else {
+    let num_octets = l0 & 0x7F
+    if num_octets == 0 || num_octets > 4 || num_octets > end - cur {
+      raise @asn1.DerError::InvalidLength("invalid DER length encoding")
+    }
+    let mut v = 0
+    for i = 0; i < num_octets; i = i + 1 {
+      let b = data[cur + i].to_int()
+      if i == 0 && num_octets == 4 && (b & 0x80) != 0 {
+        raise @asn1.DerError::InvalidLength(
+          "length overflows signed 32-bit Int",
+        )
+      }
+      v = (v << 8) | b
+    }
+    cur += num_octets
+    v
+  }
+  if len > end - cur {
+    raise @asn1.DerError::UnexpectedEof
+  }
+  (class_bits, constructed, tag_num, cur, cur + len)
+}
+
+///|
+fn extract_kdc_req_raw_body(
+  data : Bytes,
+  app_tag : Int32,
+) -> Bytes raise @asn1.DerError {
+  let total = data.length()
+  let (c1, cons1, t1, app_start, app_end) = read_raw_tlv_header(data, 0, total)
+  if c1 != 1 || !cons1 || t1 != app_tag || app_end != total {
+    raise @asn1.DerError::TagMismatch(
+      expected="APPLICATION[\{app_tag}]",
+      got="class=\{c1} tag=\{t1}",
+    )
+  }
+  let (c2, cons2, t2, seq_start, seq_end) = read_raw_tlv_header(
+    data, app_start, app_end,
+  )
+  if c2 != 0 || !cons2 || t2 != 16 || seq_end != app_end {
+    raise @asn1.DerError::TagMismatch(
+      expected="SEQUENCE",
+      got="class=\{c2} tag=\{t2}",
+    )
+  }
+  let mut cur = seq_start
+  while cur < seq_end {
+    let (cf, consf, tf, vstart, vend) = read_raw_tlv_header(data, cur, seq_end)
+    if cf == 2 && consf && tf == 4 {
+      return Bytes::makei(vend - vstart, fn(i) { data[vstart + i] })
+    }
+    cur = vend
+  }
+  raise @asn1.DerError::MissingField("context[4]")
+}
+
+///|
 pub fn KdcReq::decode_tgs_req(data : Bytes) -> KdcReq raise @asn1.DerError {
   decode_kdc_req(data, MSG_TGS_REQ, @asn1.APP_TGS_REQ)
+}
+
+///|
+/// Decode a `TGS-REQ` (`[APPLICATION 12]`) while also returning the exact raw
+/// on-the-wire DER bytes of `[4] KDC-REQ-BODY` (unwrapped from the `[4]` tag)
+/// for RFC 4120 §5.4.1 `Authenticator.cksum` verification.
+pub fn KdcReq::decode_tgs_req_with_raw_body(
+  data : Bytes,
+) -> (KdcReq, Bytes) raise @asn1.DerError {
+  let req = decode_kdc_req(data, MSG_TGS_REQ, @asn1.APP_TGS_REQ)
+  let raw_body = extract_kdc_req_raw_body(data, @asn1.APP_TGS_REQ)
+  (req, raw_body)
 }
 
 ///|

@@ -774,3 +774,33 @@ test "encode validation: negative etype raises FieldTooLarge" {
   let r = Ok(kt.encode()) catch { e => Err(e) }
   assert_true(r is Err(@keytab.KeytabError::FieldTooLarge("etype")))
 }
+
+///|
+test "malformed: truncated trailing 32-bit kvno (1..3 bytes) raises TruncatedEntry" {
+  for extra = 1; extra <= 3; extra = extra + 1 {
+    let body : Array[Byte] = []
+    push_u16_be(body, 1)
+    push_ascii_counted(body, "EXAMPLE.COM")
+    push_ascii_counted(body, "alice")
+    push_u32_be(body, 1U)
+    push_u32_be(body, 1700000000U)
+    body.push(b'\x00')
+    push_u16_be(body, 18)
+    push_u16_be(body, 2)
+    body.push(b'\xab')
+    body.push(b'\xcd')
+    for _j = 0; _j < extra; _j = _j + 1 {
+      body.push(b'\x01')
+    }
+    let raw : Array[Byte] = []
+    push_u16_be(raw, 0x0502)
+    push_u32_be(raw, body.length().reinterpret_as_uint())
+    for b in body {
+      raw.push(b)
+    }
+    let r = Ok(@keytab.Keytab::decode(Bytes::from_array(raw))) catch {
+      e => Err(e)
+    }
+    assert_true(r is Err(@keytab.KeytabError::TruncatedEntry))
+  }
+}

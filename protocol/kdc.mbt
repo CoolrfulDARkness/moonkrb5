@@ -34,7 +34,8 @@ pub struct Kdc {
   priv max_skew_secs : Int64
   priv default_lifetime_secs : Int64
   priv principals : Map[String, PrincipalEntry]
-  priv replay_cache : ReplayCache
+  priv as_replay_cache : ReplayCache
+  priv tgs_replay_cache : ReplayCache
 }
 
 ///|
@@ -52,7 +53,8 @@ pub fn Kdc::new(
     max_skew_secs,
     default_lifetime_secs,
     principals: {},
-    replay_cache: ReplayCache::new(max_skew_secs~),
+    as_replay_cache: ReplayCache::new(max_skew_secs~),
+    tgs_replay_cache: ReplayCache::new(max_skew_secs~),
   }
   let krbtgt_name = @types.PrincipalName::service("krbtgt", realm)
   kdc.add_principal_keys(krbtgt_name, 1U, krbtgt_keys)
@@ -167,7 +169,12 @@ fn build_etype_info2_for_client(
   client_entry : PrincipalEntry,
 ) -> Array[@types.EtypeInfo2Entry] {
   let out : Array[@types.EtypeInfo2Entry] = []
+  let seen : Map[Int32, Bool] = Map([])
   for et_int in requested_etypes {
+    if seen.contains(et_int) {
+      continue
+    }
+    seen.set(et_int, true)
     match find_principal_key_by_etype(client_entry, et_int) {
       Some(pk) =>
         out.push({
@@ -179,6 +186,30 @@ fn build_etype_info2_for_client(
     }
   }
   out
+}
+
+///|
+fn has_unsupported_kdc_options(opts : UInt32) -> Bool {
+  let supported = @types.KDC_OPT_FORWARDABLE |
+    @types.KDC_OPT_PROXIABLE |
+    @types.KDC_OPT_RENEWABLE
+  (opts & (supported ^ 0xFFFFFFFFU)) != 0U
+}
+
+///|
+fn count_padata(padata : Array[@types.PaData]?, pa_type : Int32) -> Int32 {
+  match padata {
+    None => 0
+    Some(items) => {
+      let mut n = 0
+      for pa in items {
+        if pa.padata_type == pa_type {
+          n += 1
+        }
+      }
+      n
+    }
+  }
 }
 
 ///|
@@ -337,6 +368,28 @@ pub fn Kdc::handle_as_req(
       sname=Some(sname),
     )
   }
+  if has_unsupported_kdc_options(body.kdc_options) {
+    return self.make_krb_error(
+      now,
+      now_usec,
+      @types.KDC_ERR_BADOPTION,
+      "Unsupported kdc-options requested in AS-REQ",
+      crealm=Some(self.realm),
+      cname=Some(cname),
+      sname=Some(sname),
+    )
+  }
+  if count_padata(req.padata, @types.PA_ENC_TIMESTAMP) > 1 {
+    return self.make_krb_error(
+      now,
+      now_usec,
+      @types.KDC_ERR_PREAUTH_FAILED,
+      "Duplicate PA-ENC-TIMESTAMP in AS-REQ",
+      crealm=Some(self.realm),
+      cname=Some(cname),
+      sname=Some(sname),
+    )
+  }
   let client_entry = match self.find_principal(cname) {
     Some(e) => e
     None =>
@@ -489,7 +542,7 @@ pub fn Kdc::handle_as_req(
         )
       }
       let pausec = ts_enc.pausec.unwrap_or(0)
-      self.replay_cache.check_and_insert(
+      self.as_replay_cache.check_and_insert(
         now,
         self.realm,
         cname,
@@ -606,6 +659,41 @@ pub fn Kdc::handle_as_req(
   if (body.kdc_options & @types.KDC_OPT_RENEWABLE) != 0U {
     flags = flags | @types.TKT_FLAG_RENEWABLE
   }
+  let renew_till : String? = if (flags & @types.TKT_FLAG_RENEWABLE) != 0U {
+    let mut renew_unix = end_unix + self.default_lifetime_secs
+    match body.rtime {
+      Some(rtime_str) => {
+        let rtime_unix = @types.kerberos_time_to_unix(rtime_str) catch {
+          _ =>
+            return self.make_krb_error(
+              now,
+              now_usec,
+              @types.KRB_ERR_GENERIC,
+              "Invalid rtime timestamp",
+              crealm=Some(self.realm),
+              cname=Some(cname),
+              sname=Some(sname),
+            )
+        }
+        if rtime_unix > end_unix && rtime_unix < renew_unix {
+          renew_unix = rtime_unix
+        }
+      }
+      None => ()
+    }
+    let rt_str = @types.unix_to_kerberos_time(renew_unix) catch {
+      _ =>
+        return self.make_krb_error(
+          now,
+          now_usec,
+          @types.KRB_ERR_GENERIC,
+          "Invalid renew_till timestamp",
+        )
+    }
+    Some(rt_str)
+  } else {
+    None
+  }
   let session_etype = server_pk.etype
   let session_key : @types.EncryptionKey = {
     keytype: session_etype.to_int(),
@@ -620,7 +708,7 @@ pub fn Kdc::handle_as_req(
     authtime,
     starttime: Some(authtime),
     endtime,
-    renew_till: None,
+    renew_till,
     caddr: None,
     authorization_data: None,
   }
@@ -658,7 +746,7 @@ pub fn Kdc::handle_as_req(
     authtime,
     starttime: Some(authtime),
     endtime,
-    renew_till: None,
+    renew_till,
     srealm: self.realm,
     sname,
     caddr: None,
@@ -720,7 +808,7 @@ pub fn Kdc::handle_tgs_req(
   rng : @crypto.DeterministicRng,
   req_der : Bytes,
 ) -> Bytes {
-  let req = @types.KdcReq::decode_tgs_req(req_der) catch {
+  let (req, raw_req_body) = @types.KdcReq::decode_tgs_req_with_raw_body(req_der) catch {
     _ =>
       return self.make_krb_error(
         now,
@@ -743,6 +831,14 @@ pub fn Kdc::handle_tgs_req(
       now_usec,
       @types.KRB_AP_ERR_MSG_TYPE,
       "Unexpected msg-type in TGS-REQ",
+    )
+  }
+  if count_padata(req.padata, @types.PA_TGS_REQ) > 1 {
+    return self.make_krb_error(
+      now,
+      now_usec,
+      @types.KRB_AP_ERR_MSG_TYPE,
+      "Duplicate PA-TGS-REQ in TGS-REQ",
     )
   }
   let pa_tgs = match find_padata(req.padata, @types.PA_TGS_REQ) {
@@ -949,7 +1045,8 @@ pub fn Kdc::handle_tgs_req(
       "Unsupported Authenticator version",
     )
   }
-  if auth.crealm != tgt_enc.crealm || auth.cname != tgt_enc.cname {
+  if auth.crealm != tgt_enc.crealm ||
+    !principal_names_equal(auth.cname, tgt_enc.cname) {
     return self.make_krb_error(
       now,
       now_usec,
@@ -978,31 +1075,24 @@ pub fn Kdc::handle_tgs_req(
       cname=Some(tgt_enc.cname),
     )
   }
-  self.replay_cache.check_and_insert(
-    now,
-    auth.crealm,
-    auth.cname,
-    auth.ctime,
-    auth.cusec,
-  ) catch {
-    ProtocolError::ReplayDetected =>
-      return self.make_krb_error(
-        now,
-        now_usec,
-        @types.KRB_AP_ERR_REPEAT,
-        "Replay detected in TGS-REQ authenticator",
-        crealm=Some(tgt_enc.crealm),
-        cname=Some(tgt_enc.cname),
-      )
-    _ =>
-      return self.make_krb_error(
-        now,
-        now_usec,
-        @types.KRB_ERR_GENERIC,
-        "Replay cache check failed",
-      )
+  // Read-only replay check before req-body checksum to prevent MITM cache poisoning DoS.
+  if self.tgs_replay_cache.contains(
+      now,
+      auth.crealm,
+      auth.cname,
+      auth.ctime,
+      auth.cusec,
+    ) {
+    return self.make_krb_error(
+      now,
+      now_usec,
+      @types.KRB_AP_ERR_REPEAT,
+      "Replay detected in TGS-REQ authenticator",
+      crealm=Some(tgt_enc.crealm),
+      cname=Some(tgt_enc.cname),
+    )
   }
-  // Mandatory verification of Authenticator.cksum over req_body.encode()
+  // Mandatory verification of Authenticator.cksum over exact on-the-wire DER req_body bytes
   let cksum = match auth.cksum {
     Some(ck) => ck
     None =>
@@ -1036,20 +1126,11 @@ pub fn Kdc::handle_tgs_req(
       cname=Some(tgt_enc.cname),
     )
   }
-  let body_der = req.req_body.encode() catch {
-    _ =>
-      return self.make_krb_error(
-        now,
-        now_usec,
-        @types.KRB_ERR_GENERIC,
-        "Failed to encode req-body for checksum verification",
-      )
-  }
   let cksum_valid = @crypto.verify_checksum(
     cksum_type,
     tgt_enc.key.keyvalue,
     @crypto.KU_TGS_REQ_AUTH_CKSUM,
-    body_der,
+    raw_req_body,
     cksum.checksum,
   ) catch {
     _ => false
@@ -1064,6 +1145,22 @@ pub fn Kdc::handle_tgs_req(
       cname=Some(tgt_enc.cname),
     )
   }
+  // Insert into TGS replay cache only AFTER Authenticator.cksum verification succeeds.
+  self.tgs_replay_cache.insert(
+    now,
+    auth.crealm,
+    auth.cname,
+    auth.ctime,
+    auth.cusec,
+  ) catch {
+    _ =>
+      return self.make_krb_error(
+        now,
+        now_usec,
+        @types.KRB_ERR_GENERIC,
+        "Replay cache insert failed",
+      )
+  }
   // Look up target service principal
   let body = req.req_body
   let sname = match body.sname {
@@ -1077,6 +1174,17 @@ pub fn Kdc::handle_tgs_req(
         crealm=Some(tgt_enc.crealm),
         cname=Some(tgt_enc.cname),
       )
+  }
+  if has_unsupported_kdc_options(body.kdc_options) {
+    return self.make_krb_error(
+      now,
+      now_usec,
+      @types.KDC_ERR_BADOPTION,
+      "Unsupported kdc-options requested in TGS-REQ",
+      crealm=Some(tgt_enc.crealm),
+      cname=Some(tgt_enc.cname),
+      sname=Some(sname),
+    )
   }
   if body.realm != self.realm {
     return self.make_krb_error(
@@ -1177,6 +1285,59 @@ pub fn Kdc::handle_tgs_req(
     (tgt_enc.flags & @types.TKT_FLAG_RENEWABLE) != 0U {
     svc_flags = svc_flags | @types.TKT_FLAG_RENEWABLE
   }
+  let svc_renew_till : String? = if (svc_flags & @types.TKT_FLAG_RENEWABLE) !=
+    0U {
+    let mut renew_unix = end_unix + self.default_lifetime_secs
+    match tgt_enc.renew_till {
+      Some(tgt_rt_str) => {
+        let tgt_rt_unix = @types.kerberos_time_to_unix(tgt_rt_str) catch {
+          _ =>
+            return self.make_krb_error(
+              now,
+              now_usec,
+              @types.KRB_ERR_GENERIC,
+              "Invalid TGT renew_till timestamp",
+            )
+        }
+        if tgt_rt_unix < renew_unix {
+          renew_unix = tgt_rt_unix
+        }
+      }
+      None => ()
+    }
+    match body.rtime {
+      Some(rtime_str) => {
+        let rtime_unix = @types.kerberos_time_to_unix(rtime_str) catch {
+          _ =>
+            return self.make_krb_error(
+              now,
+              now_usec,
+              @types.KRB_ERR_GENERIC,
+              "Invalid rtime timestamp in TGS-REQ",
+            )
+        }
+        if rtime_unix > end_unix && rtime_unix < renew_unix {
+          renew_unix = rtime_unix
+        }
+      }
+      None => ()
+    }
+    if renew_unix < end_unix {
+      renew_unix = end_unix
+    }
+    let rt_str = @types.unix_to_kerberos_time(renew_unix) catch {
+      _ =>
+        return self.make_krb_error(
+          now,
+          now_usec,
+          @types.KRB_ERR_GENERIC,
+          "Invalid service ticket renew_till timestamp",
+        )
+    }
+    Some(rt_str)
+  } else {
+    None
+  }
   let svc_session_etype = service_pk.etype
   let svc_session_key : @types.EncryptionKey = {
     keytype: svc_session_etype.to_int(),
@@ -1191,7 +1352,7 @@ pub fn Kdc::handle_tgs_req(
     authtime: tgt_enc.authtime,
     starttime: Some(now_str),
     endtime,
-    renew_till: None,
+    renew_till: svc_renew_till,
     caddr: None,
     authorization_data: None,
   }
@@ -1229,7 +1390,7 @@ pub fn Kdc::handle_tgs_req(
     authtime: tgt_enc.authtime,
     starttime: Some(now_str),
     endtime,
-    renew_till: None,
+    renew_till: svc_renew_till,
     srealm: self.realm,
     sname,
     caddr: None,

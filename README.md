@@ -4,7 +4,7 @@
 > **纯 MoonBit · 零 FFI · Sans-I/O 企业级 Kerberos 5 认证协议栈（RFC 4120 / RFC 3961 / RFC 3962 / RFC 8009）**
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
-[![Targets: Wasm | Wasm-GC | JS | Native](https://img.shields.io/badge/Targets-wasm%20%7C%20wasm--gc%20%7C%20js%20%7C%20native-brightgreen.svg)](#multi-target-verification)
+[![Targets: Wasm | Wasm-GC | JS | Native](https://img.shields.io/badge/Targets-wasm%20%7C%20wasm--gc%20%7C%20js%20%7C%20native-brightgreen.svg)](#2-run-tests--benchmarks)
 [![Zero FFI](https://img.shields.io/badge/FFI-Zero%20External%20Deps-orange.svg)](#key-highlights--项目亮点)
 
 `moonkrb5` is a ground-up, zero-dependency implementation of the **Kerberos V5** authentication protocol in **MoonBit**. Every layer—from SHA-1/SHA-256/SHA-384, AES-CBC-CTS (CS3), PBKDF2, RFC 3961 `n-fold`, and RFC 8009 `KDF-HMAC-SHA2`, through strict ASN.1 DER parsing, MIT binary `.keytab` v0x0502 I/O, and the complete three-party **Client / KDC / Service** state machines—runs purely in MoonBit with **zero FFI** and **zero warnings** (`-d`) across `wasm`, `wasm-gc`, `js`, and `native` targets.
@@ -26,8 +26,7 @@
 ```mermaid
 flowchart TD
   CLI["cmd/main<br/>One-Click CLI Demo & Self-Check"] --> ROOT["CoolrfulDARkness/moonkrb5<br/>Root Public Facade"]
-  TESTS["tests<br/>Integration, Fuzz & Benchmarks"] --> ROOT
-  TESTS --> PROTOCOL
+  TESTS["tests<br/>Adversarial Security Tests & Benchmarks"] --> PROTOCOL
   ROOT --> PROTOCOL["protocol<br/>Sans-I/O Client / KDC / Service / ReplayCache"]
   ROOT --> TYPES["types<br/>RFC 4120 Messages & Time/TCP Framing"]
   ROOT --> KEYTAB["keytab<br/>MIT .keytab v0x0502 Binary Codec"]
@@ -49,7 +48,7 @@ CoolrfulDARkness/moonkrb5
 ├── protocol/    Sans-I/O Client FSM, KDC (AS+TGS), Service verifier, ReplayCache
 ├── moonkrb5.mbt Root facade (handshake demo, RFC vector self-check, security demo)
 ├── cmd/main/    One-click CLI runner (`moon run cmd/main`)
-└── tests/       Cross-package integration tests, fuzzing & benchmarks
+└── tests/       Adversarial Security Tests & Benchmarks (32 security tests + 7 benchmarks)
 ```
 
 For deep design notes on state machines, DER boundaries, Encrypt-and-MAC vs. Encrypt-then-MAC, and `.keytab` wire layout, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
@@ -140,8 +139,12 @@ let client = @protocol.Client::new(
 let as_req_der = client.build_as_req(now_unix_secs, rng)
 // Send `as_req_der` over your transport, feed KDC reply bytes back:
 match client.handle_as_response(now_unix_secs, usec, rng, kdc_reply_der) {
-  @protocol.AsStepResult::NeedPreauthRetry(retry_der) => { /* send retry_der */ }
-  @protocol.AsStepResult::GotTgt(tgt_cred) => { /* call client.build_tgs_req(...) */ }
+  @protocol.AsStepResult::NeedPreauthRetry(retry_der) => {
+    // send retry_der
+  }
+  @protocol.AsStepResult::GotTgt(tgt_cred) => {
+    // call client.build_tgs_req(...)
+  }
 }
 ```
 
@@ -159,7 +162,7 @@ Measured with `moon bench --target wasm-gc -d tests` (pure MoonBit, zero FFI):
 | `bench_crypto_aes128_sha256_enc_dec` (etype 19, 256B) | **256.16 µs** | 251.01 µs … 264.56 µs |
 | `bench_crypto_aes256_sha1_enc_dec` (etype 18, 256B) | **368.20 µs** | 361.63 µs … 373.62 µs |
 | `bench_crypto_aes256_sha384_enc_dec` (etype 20, 256B) | **386.75 µs** | 363.90 µs … 404.23 µs |
-| `bench_full_krb5_handshake_aes256_sha384` (Full AS+TGS+AP+AP-REP) | **2.07 ms** | 2.01 ms … 2.15 ms |
+| `bench_full_krb5_handshake_aes256_sha384` (Full AS+TGS+AP+AP-REP, s2k=1 iter) | **2.07 ms** | 2.01 ms … 2.15 ms |
 
 ---
 

@@ -168,9 +168,13 @@ pub fn run_full_handshake_demo(
     s2kparams=demo_s2k,
   )
   let t0 : Int64 = 1735689600L
-  let client = @protocol.Client::new(alice, realm, alice_pw, preferred_etypes=[
-    etype,
-  ])
+  let client = @protocol.Client::new(
+    alice,
+    realm,
+    alice_pw,
+    preferred_etypes=[etype],
+    min_s2k_iterations=64U,
+  )
   // Step 1: Initial AS-REQ (without preauth) -> KRB-ERROR(KDC_ERR_PREAUTH_REQUIRED)
   let as_req_der = client.build_as_req(t0, rng)
   let preauth_err_der = kdc.handle_message(t0, 100, rng, as_req_der)
@@ -318,7 +322,7 @@ pub fn run_rfc_vector_self_check() -> Array[(String, Bool)] {
   results.push(
     ("RFC 3962 Appendix B PBKDF2 + AES128/AES256 S2K", rfc3962_s2k_ok),
   )
-  // 3. RFC 3962 Appendix B AES-128-CTS (17B, 31B, 64B encrypt & decrypt)
+  // 3. RFC 3962 Appendix B AES-128-CTS (17B & 64B encrypt & decrypt)
   let rfc3962_cts_ok = try {
     let key = must_hex("63 68 69 63 6b 65 6e 20 74 65 72 69 79 61 6b 69")
     let iv = Bytes::make(16, b'\x00')
@@ -497,9 +501,13 @@ fn issue_demo_service_ticket(
   kdc.add_principal_with_password(svc_name, svc_pw, [etype], s2kparams=s2k)
   let kt = kdc.export_keytab(svc_name)
   let service = @protocol.Service::new(realm, svc_name, kt)
-  let client = @protocol.Client::new(alice, realm, alice_pw, preferred_etypes=[
-    etype,
-  ])
+  let client = @protocol.Client::new(
+    alice,
+    realm,
+    alice_pw,
+    preferred_etypes=[etype],
+    min_s2k_iterations=16U,
+  )
   let as_req = client.build_as_req(t0, rng)
   let as_rep = kdc.handle_message(t0, 1, rng, as_req)
   let _ = client.handle_as_response(t0, 2, rng, as_rep)

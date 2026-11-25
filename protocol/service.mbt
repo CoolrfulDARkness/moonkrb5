@@ -73,8 +73,14 @@ pub fn Service::verify_ap_req(
   if ap_req.ticket.tkt_vno != @types.KRB5_PVNO {
     raise ProtocolError::UnexpectedMessage("Unsupported Ticket version")
   }
-  // Verify ticket is addressed to this service
-  if ap_req.ticket.realm != self.realm || ap_req.ticket.sname != self.sname {
+  if (ap_req.ap_options & @types.AP_OPT_USE_SESSION_KEY) != 0U {
+    raise ProtocolError::UnexpectedMessage(
+      "AP_OPT_USE_SESSION_KEY is not supported",
+    )
+  }
+  // Verify ticket is addressed to this service (RFC 4120 §6.2: compare name_string)
+  if ap_req.ticket.realm != self.realm ||
+    !principal_names_equal(ap_req.ticket.sname, self.sname) {
     raise ProtocolError::WrongService(
       "Expected " +
       self.sname.to_display() +
@@ -167,8 +173,9 @@ pub fn Service::verify_ap_req(
   if auth.authenticator_vno != @types.KRB5_PVNO {
     raise ProtocolError::UnexpectedMessage("Unsupported Authenticator version")
   }
-  // Check client principal matches ticket
-  if auth.crealm != enc_tkt.crealm || auth.cname != enc_tkt.cname {
+  // Check client principal matches ticket (RFC 4120 §6.2: compare name_string)
+  if auth.crealm != enc_tkt.crealm ||
+    !principal_names_equal(auth.cname, enc_tkt.cname) {
     raise ProtocolError::PrincipalMismatch(
       "Authenticator client does not match ticket client",
     )

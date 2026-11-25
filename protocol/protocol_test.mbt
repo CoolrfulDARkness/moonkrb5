@@ -680,3 +680,137 @@ test "additional security checks: InvalidState, NonceMismatch, TicketInvalidFlag
   }
   assert_true(got_invalid_flag)
 }
+
+///|
+test "hardening: KRB-ERROR state rollback, name_type-agnostic matching, duplicate padata, etype_info2 dedup, renew_till" {
+  let etype = @crypto.Enctype::Aes256CtsHmacSha384_192
+  let (kdc, client, service, alice, http_svc, rng) = setup_three_party(
+    etype,
+    b"hardening-unit-seed",
+    require_preauth=true,
+  )
+  let t0 : Int64 = 1700030000L
+  // 1. ETYPE-INFO2 deduplication when client sends duplicate etypes in AS-REQ
+  let dup_as_body : @types.KdcReqBody = {
+    kdc_options: @types.KDC_OPT_FORWARDABLE | @types.KDC_OPT_RENEWABLE,
+    cname: Some(alice),
+    realm: "EXAMPLE.COM",
+    sname: Some(@types.PrincipalName::service("krbtgt", "EXAMPLE.COM")),
+    from: None,
+    till: @types.unix_to_kerberos_time(t0 + 3600L),
+    rtime: None,
+    nonce: 0x2222U,
+    etype: [etype.to_int(), etype.to_int(), etype.to_int()],
+    addresses: None,
+    enc_authorization_data: None,
+    additional_tickets: None,
+  }
+  let dup_et_req : @types.KdcReq = {
+    pvno: @types.KRB5_PVNO,
+    msg_type: @types.MSG_AS_REQ,
+    padata: None,
+    req_body: dup_as_body,
+  }
+  let preauth_err = kdc.handle_message(t0, 1, rng, dup_et_req.encode_as_req())
+  let err_dec = @types.KrbError::decode(preauth_err)
+  assert_eq(err_dec.error_code, @types.KDC_ERR_PREAUTH_REQUIRED)
+  let md = @types.decode_method_data(err_dec.e_data.unwrap())
+  let info2 = @types.decode_etype_info2(md[0].padata_value)
+  assert_eq(info2.length(), 1)
+  // 2. Duplicate PA-ENC-TIMESTAMP rejected
+  let dup_pa_req : @types.KdcReq = {
+    pvno: @types.KRB5_PVNO,
+    msg_type: @types.MSG_AS_REQ,
+    padata: Some([
+      { padata_type: @types.PA_ENC_TIMESTAMP, padata_value: b"\x30\x00", },
+      { padata_type: @types.PA_ENC_TIMESTAMP, padata_value: b"\x30\x00", },
+    ]),
+    req_body: dup_as_body,
+  }
+  let dup_pa_resp = kdc.handle_message(t0, 2, rng, dup_pa_req.encode_as_req())
+  assert_eq(
+    @types.KrbError::decode(dup_pa_resp).error_code,
+    @types.KDC_ERR_PREAUTH_FAILED,
+  )
+  // 3. Normal AS exchange produces TGT with TKT_FLAG_RENEWABLE and renew_till
+  let as_req1 = client.build_as_req(t0, rng)
+  let as_resp1 = kdc.handle_message(t0, 10, rng, as_req1)
+  let as_req2 = match client.handle_as_response(t0 + 1L, 11, rng, as_resp1) {
+    @protocol.AsStepResult::NeedPreauthRetry(der) => der
+    _ => fail("expected retry")
+  }
+  let as_resp2 = kdc.handle_message(t0 + 1L, 12, rng, as_req2)
+  let tgt = match client.handle_as_response(t0 + 1L, 13, rng, as_resp2) {
+    @protocol.AsStepResult::GotTgt(c) => c
+    _ => fail("expected tgt")
+  }
+  assert_true((tgt.flags & @types.TKT_FLAG_RENEWABLE) != 0U)
+  // 4. KRB-ERROR during TGS exchange rolls back Client state from AwaitingTgsRep -> HasTgt
+  let unknown_svc = @types.PrincipalName::service("HTTP", "missing.example.com")
+  let bad_tgs_req = client.build_tgs_req(unknown_svc, t0 + 5L, 20, rng)
+  assert_eq(client.state(), @protocol.ClientState::AwaitingTgsRep)
+  let tgs_err_resp = kdc.handle_message(t0 + 5L, 21, rng, bad_tgs_req)
+  let mut got_unknown = false
+  try {
+    let _ = client.handle_tgs_response(tgs_err_resp)
+  } catch {
+    @protocol.ProtocolError::KrbErrorReceived(code~, ..) =>
+      got_unknown = code == @types.KDC_ERR_S_PRINCIPAL_UNKNOWN
+    _ => ()
+  }
+  assert_true(got_unknown)
+  assert_eq(client.state(), @protocol.ClientState::HasTgt)
+  // 5. Client can immediately reuse TGT to request valid service with different name_type (NT_SRV_HST vs NT_SRV_INST)
+  let http_svc_hst = @types.PrincipalName::new(
+    @types.NT_SRV_HST,
+    http_svc.name_string,
+  )
+  let tgs_req = client.build_tgs_req(http_svc_hst, t0 + 6L, 22, rng)
+  // Duplicate PA-TGS-REQ rejected
+  let dec_tgs = @types.KdcReq::decode_tgs_req(tgs_req)
+  let pa_list = dec_tgs.padata.unwrap()
+  let dup_tgs : @types.KdcReq = {
+    ..dec_tgs,
+    padata: Some([pa_list[0], pa_list[0]]),
+  }
+  let dup_tgs_resp = kdc.handle_message(
+    t0 + 6L,
+    23,
+    rng,
+    dup_tgs.encode_tgs_req(),
+  )
+  assert_eq(
+    @types.KrbError::decode(dup_tgs_resp).error_code,
+    @types.KRB_AP_ERR_MSG_TYPE,
+  )
+  let tgs_resp = kdc.handle_message(t0 + 6L, 24, rng, tgs_req)
+  let svc_cred = client.handle_tgs_response(tgs_resp)
+  // 6. KRB-ERROR during AP exchange rolls back Client state from AwaitingApRep -> HasServiceTicket
+  let ap_req1 = client.build_ap_req(
+    svc_cred,
+    t0 + 10L,
+    30,
+    rng,
+    mutual_required=true,
+  )
+  assert_eq(client.state(), @protocol.ClientState::AwaitingApRep)
+  let svc_err = service.make_krb_error(
+    t0 + 10L,
+    31,
+    @types.KRB_AP_ERR_SKEW,
+    "simulated skew",
+  )
+  let mut got_ap_err = false
+  try {
+    let _ = client.handle_ap_rep(svc_err)
+  } catch {
+    @protocol.ProtocolError::KrbErrorReceived(code~, ..) =>
+      got_ap_err = code == @types.KRB_AP_ERR_SKEW
+    _ => ()
+  }
+  assert_true(got_ap_err)
+  assert_eq(client.state(), @protocol.ClientState::HasServiceTicket)
+  // And Service accepts ticket with NT_SRV_HST even though Service was configured with NT_SRV_INST (RFC 4120 §6.2)
+  let verified = service.verify_ap_req(t0 + 10L, rng, ap_req1)
+  assert_eq(verified.client.name_string, alice.name_string)
+}

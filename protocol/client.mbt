@@ -87,6 +87,8 @@ pub struct Client {
   priv realm : String
   priv password : Bytes
   priv preferred_etypes : Array[@crypto.Enctype]
+  priv min_s2k_iterations : UInt32
+  priv max_s2k_iterations : UInt32
   priv mut state : ClientState
   priv mut tgt : Credential?
   priv mut service_ticket : Credential?
@@ -95,6 +97,7 @@ pub struct Client {
   priv mut preauth_attempted : Bool
   priv mut pending_tgs_nonce : UInt32?
   priv mut pending_tgs_subkey : @types.EncryptionKey?
+  priv mut pending_tgs_sname : @types.PrincipalName?
   priv mut pending_ap_cred : Credential?
   priv mut pending_ap_ctime : String?
   priv mut pending_ap_cusec : Int32?
@@ -112,12 +115,16 @@ pub fn Client::new(
     @crypto.Enctype::Aes256CtsHmacSha1_96,
     @crypto.Enctype::Aes128CtsHmacSha1_96,
   ],
+  min_s2k_iterations~ : UInt32 = 4096U,
+  max_s2k_iterations~ : UInt32 = 500_000U,
 ) -> Client {
   {
     cname,
     realm,
     password,
     preferred_etypes: preferred_etypes.copy(),
+    min_s2k_iterations,
+    max_s2k_iterations,
     state: Init,
     tgt: None,
     service_ticket: None,
@@ -126,6 +133,7 @@ pub fn Client::new(
     preauth_attempted: false,
     pending_tgs_nonce: None,
     pending_tgs_subkey: None,
+    pending_tgs_sname: None,
     pending_ap_cred: None,
     pending_ap_ctime: None,
     pending_ap_cusec: None,
@@ -164,6 +172,58 @@ fn Client::supports_etype(self : Client, et : @crypto.Enctype) -> Bool {
     }
   }
   false
+}
+
+///|
+/// Validate unauthenticated `PA-ETYPE-INFO2.s2kparams` PBKDF2 iteration count
+/// against `[min_s2k_iterations, max_s2k_iterations]` to defeat downgrade and DoS.
+fn Client::validate_s2k_params(
+  self : Client,
+  etype : @crypto.Enctype,
+  s2kparams : Bytes?,
+) -> Bytes? raise ProtocolError {
+  let default_iter : UInt32 = match etype {
+    @crypto.Enctype::Aes128CtsHmacSha1_96
+    | @crypto.Enctype::Aes256CtsHmacSha1_96 => 4096U
+    @crypto.Enctype::Aes128CtsHmacSha256_128
+    | @crypto.Enctype::Aes256CtsHmacSha384_192 => 32768U
+  }
+  match s2kparams {
+    None => {
+      if default_iter < self.min_s2k_iterations ||
+        default_iter > self.max_s2k_iterations {
+        raise ProtocolError::PreauthFailed(
+          "s2kparams iteration count out of allowed range",
+        )
+      }
+      None
+    }
+    Some(params) =>
+      if params.length() == 0 {
+        if default_iter < self.min_s2k_iterations ||
+          default_iter > self.max_s2k_iterations {
+          raise ProtocolError::PreauthFailed(
+            "s2kparams iteration count out of allowed range",
+          )
+        }
+        None
+      } else if params.length() == 4 {
+        let iter : UInt32 = (params[0].to_uint() << 24) |
+          (params[1].to_uint() << 16) |
+          (params[2].to_uint() << 8) |
+          params[3].to_uint()
+        if iter == 0U ||
+          iter < self.min_s2k_iterations ||
+          iter > self.max_s2k_iterations {
+          raise ProtocolError::PreauthFailed(
+            "s2kparams iteration count out of allowed range",
+          )
+        }
+        Some(params)
+      } else {
+        raise ProtocolError::PreauthFailed("s2kparams must be 4 bytes or empty")
+      }
+  }
 }
 
 ///|
@@ -289,12 +349,8 @@ pub fn Client::handle_as_response(
       let salt = info2_entry.salt.unwrap_or(
         default_salt(self.realm, self.cname),
       )
-      let key = derive_string_to_key(
-        etype,
-        self.password,
-        salt,
-        info2_entry.s2kparams,
-      )
+      let validated_s2k = self.validate_s2k_params(etype, info2_entry.s2kparams)
+      let key = derive_string_to_key(etype, self.password, salt, validated_s2k)
       let patimestamp = unix_to_ktime(now)
       let pa_ts_enc : @types.PaEncTsEnc = {
         patimestamp,
@@ -365,15 +421,25 @@ pub fn Client::handle_as_response(
   if rep.pvno != @types.KRB5_PVNO || rep.msg_type != @types.MSG_AS_REP {
     raise ProtocolError::UnexpectedMessage("Invalid AS-REP pvno or msg-type")
   }
-  if rep.crealm != self.realm || rep.cname != self.cname {
+  if rep.crealm != self.realm || !principal_names_equal(rep.cname, self.cname) {
     raise ProtocolError::PrincipalMismatch(
       "AS-REP client principal does not match requested principal",
     )
   }
   let rep_etype = enctype_from_int(rep.enc_part.etype)
+  if !self.supports_etype(rep_etype) {
+    raise ProtocolError::UnsupportedEnctype(rep.enc_part.etype)
+  }
   let reply_key = match self.pending_as_key {
-    Some((cached_et, cached_key)) if cached_et == rep_etype => cached_key
-    _ => {
+    Some((cached_et, cached_key)) =>
+      if cached_et == rep_etype {
+        cached_key
+      } else {
+        raise ProtocolError::PreauthFailed(
+          "AS-REP enctype does not match pre-authenticated enctype",
+        )
+      }
+    None => {
       // Check PA-ETYPE-INFO2 inside AS-REP padata for salt/s2kparams
       let mut salt = default_salt(self.realm, self.cname)
       let mut s2kparams : Bytes? = None
@@ -395,7 +461,8 @@ pub fn Client::handle_as_response(
         }
         None => ()
       }
-      derive_string_to_key(rep_etype, self.password, salt, s2kparams)
+      let validated_s2k = self.validate_s2k_params(rep_etype, s2kparams)
+      derive_string_to_key(rep_etype, self.password, salt, validated_s2k)
     }
   }
   let plain = decrypt_data(rep.enc_part, reply_key, @crypto.KU_AS_REP_ENCPART)
@@ -408,6 +475,25 @@ pub fn Client::handle_as_response(
         raise ProtocolError::NonceMismatch
       }
     None => raise ProtocolError::InvalidState("Missing pending AS nonce")
+  }
+  let session_etype = enctype_from_int(enc_part.key.keytype)
+  if !self.supports_etype(session_etype) {
+    raise ProtocolError::UnsupportedEnctype(enc_part.key.keytype)
+  }
+  if enc_part.srealm != self.realm ||
+    enc_part.sname.name_string != ["krbtgt", self.realm] {
+    raise ProtocolError::WrongService(
+      "AS-REP EncAsRepPart service principal does not match krbtgt/" +
+      self.realm +
+      "@" +
+      self.realm,
+    )
+  }
+  if rep.ticket.realm != enc_part.srealm ||
+    !principal_names_equal(rep.ticket.sname, enc_part.sname) {
+    raise ProtocolError::WrongService(
+      "AS-REP outer ticket service principal does not match EncAsRepPart",
+    )
   }
   let cred : Credential = {
     client: rep.cname,
@@ -423,6 +509,7 @@ pub fn Client::handle_as_response(
   }
   self.tgt = Some(cred)
   self.pending_as_nonce = None
+  self.pending_as_key = None
   self.state = HasTgt
   AsStepResult::GotTgt(cred)
 }
@@ -522,6 +609,7 @@ pub fn Client::build_tgs_req(
   let der = tgs_req.encode_tgs_req() catch { e => raise ProtocolError::Der(e) }
   self.pending_tgs_nonce = Some(nonce)
   self.pending_tgs_subkey = opt_subkey
+  self.pending_tgs_sname = Some(service_name)
   self.state = AwaitingTgsRep
   der
 }
@@ -553,6 +641,10 @@ pub fn Client::handle_tgs_response(
     let krb_err = @types.KrbError::decode(resp_der) catch {
       e => raise ProtocolError::Der(e)
     }
+    self.pending_tgs_nonce = None
+    self.pending_tgs_subkey = None
+    self.pending_tgs_sname = None
+    self.state = HasTgt
     raise ProtocolError::KrbErrorReceived(
       code=krb_err.error_code,
       text=krb_err.e_text.unwrap_or(""),
@@ -570,7 +662,7 @@ pub fn Client::handle_tgs_response(
   if rep.pvno != @types.KRB5_PVNO || rep.msg_type != @types.MSG_TGS_REP {
     raise ProtocolError::UnexpectedMessage("Invalid TGS-REP pvno or msg-type")
   }
-  if rep.crealm != tgt.crealm || rep.cname != tgt.client {
+  if rep.crealm != tgt.crealm || !principal_names_equal(rep.cname, tgt.client) {
     raise ProtocolError::PrincipalMismatch(
       "TGS-REP client principal does not match TGT",
     )
@@ -595,6 +687,26 @@ pub fn Client::handle_tgs_response(
       }
     None => raise ProtocolError::InvalidState("Missing pending TGS nonce")
   }
+  let expected_sname = match self.pending_tgs_sname {
+    Some(s) => s
+    None => raise ProtocolError::InvalidState("Missing pending TGS sname")
+  }
+  let session_etype = enctype_from_int(enc_part.key.keytype)
+  if !self.supports_etype(session_etype) {
+    raise ProtocolError::UnsupportedEnctype(enc_part.key.keytype)
+  }
+  if enc_part.srealm != self.realm ||
+    !principal_names_equal(enc_part.sname, expected_sname) {
+    raise ProtocolError::WrongService(
+      "TGS-REP EncTgsRepPart service principal does not match requested service",
+    )
+  }
+  if rep.ticket.realm != enc_part.srealm ||
+    !principal_names_equal(rep.ticket.sname, enc_part.sname) {
+    raise ProtocolError::WrongService(
+      "TGS-REP outer ticket service principal does not match EncTgsRepPart",
+    )
+  }
   let cred : Credential = {
     client: rep.cname,
     crealm: rep.crealm,
@@ -610,6 +722,7 @@ pub fn Client::handle_tgs_response(
   self.service_ticket = Some(cred)
   self.pending_tgs_nonce = None
   self.pending_tgs_subkey = None
+  self.pending_tgs_sname = None
   self.state = HasServiceTicket
   cred
 }
@@ -705,6 +818,10 @@ pub fn Client::handle_ap_rep(
     let krb_err = @types.KrbError::decode(ap_rep_der) catch {
       e => raise ProtocolError::Der(e)
     }
+    self.pending_ap_cred = None
+    self.pending_ap_ctime = None
+    self.pending_ap_cusec = None
+    self.state = HasServiceTicket
     raise ProtocolError::KrbErrorReceived(
       code=krb_err.error_code,
       text=krb_err.e_text.unwrap_or(""),

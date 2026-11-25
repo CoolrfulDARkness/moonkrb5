@@ -967,3 +967,33 @@ test "KrbError round-trip minimal and maximal plus validation" {
   assert_true(Show::to_string(err_max).length() > 0)
   assert_true(Show::to_string(make_sample_ticket()).length() > 0)
 }
+
+///|
+test "KdcReq::decode_tgs_req_with_raw_body preserves exact raw wire DER req_body" {
+  let req_body : @types.KdcReqBody = {
+    kdc_options: @types.KDC_OPT_FORWARDABLE | @types.KDC_OPT_RENEWABLE,
+    cname: None,
+    realm: "EXAMPLE.COM",
+    sname: Some(@types.PrincipalName::service("HTTP", "web.example.com")),
+    from: None,
+    till: "20300101000000Z",
+    rtime: None,
+    nonce: 0x13579BDFU,
+    etype: [20, 19, 18, 17],
+    addresses: None,
+    enc_authorization_data: None,
+    additional_tickets: None,
+  }
+  let tgs_req : @types.KdcReq = {
+    pvno: @types.KRB5_PVNO,
+    msg_type: @types.MSG_TGS_REQ,
+    padata: Some([
+      { padata_type: @types.PA_TGS_REQ, padata_value: b"\xAA\xBB", },
+    ]),
+    req_body,
+  }
+  let encoded = tgs_req.encode_tgs_req()
+  let (decoded, raw_body) = @types.KdcReq::decode_tgs_req_with_raw_body(encoded)
+  assert_eq(decoded, tgs_req)
+  assert_eq(raw_body, req_body.encode())
+}

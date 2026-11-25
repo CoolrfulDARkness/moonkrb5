@@ -52,6 +52,39 @@ pub fn ReplayCache::len(self : ReplayCache) -> Int32 {
 }
 
 ///|
+/// Prune expired entries and check whether `(crealm, cname, ctime, cusec)` was
+/// already seen, without mutating the cache.
+pub fn ReplayCache::contains(
+  self : ReplayCache,
+  now : Int64,
+  crealm : String,
+  cname : @types.PrincipalName,
+  ctime : String,
+  cusec : Int32,
+) -> Bool {
+  self.prune(now)
+  let key = replay_entry_key(crealm, cname, ctime, cusec)
+  self.entries.contains(key)
+}
+
+///|
+/// Prune expired entries and insert `(crealm, cname, ctime, cusec)` into the
+/// replay cache. Should only be called after message integrity checks pass.
+pub fn ReplayCache::insert(
+  self : ReplayCache,
+  now : Int64,
+  crealm : String,
+  cname : @types.PrincipalName,
+  ctime : String,
+  cusec : Int32,
+) -> Unit raise ProtocolError {
+  self.prune(now)
+  let ctime_unix = ktime_to_unix(ctime)
+  let key = replay_entry_key(crealm, cname, ctime, cusec)
+  self.entries.set(key, ctime_unix)
+}
+
+///|
 /// Prune expired entries, then check whether `(crealm, cname, ctime, cusec)` was
 /// already seen. Raises `ReplayDetected` on duplicate, otherwise inserts it.
 pub fn ReplayCache::check_and_insert(

@@ -55,7 +55,7 @@ pub fn Client::build_tgs_req(Self, @types.PrincipalName, Int64, Int32, @crypto.D
 pub fn Client::handle_ap_rep(Self, Bytes) -> @types.EncApRepPart raise ProtocolError
 pub fn Client::handle_as_response(Self, Int64, Int32, @crypto.DeterministicRng, Bytes) -> AsStepResult raise ProtocolError
 pub fn Client::handle_tgs_response(Self, Bytes) -> Credential raise ProtocolError
-pub fn Client::new(@types.PrincipalName, String, Bytes, preferred_etypes? : Array[@crypto.Enctype]) -> Self
+pub fn Client::new(@types.PrincipalName, String, Bytes, preferred_etypes? : Array[@crypto.Enctype], min_s2k_iterations? : UInt32, max_s2k_iterations? : UInt32) -> Self
 pub fn Client::service_ticket(Self) -> Credential?
 pub fn Client::state(Self) -> ClientState
 pub fn Client::tgt(Self) -> Credential?
@@ -111,6 +111,8 @@ pub struct ReplayCache {
   // private fields
 }
 pub fn ReplayCache::check_and_insert(Self, Int64, String, @types.PrincipalName, String, Int32) -> Unit raise ProtocolError
+pub fn ReplayCache::contains(Self, Int64, String, @types.PrincipalName, String, Int32) -> Bool
+pub fn ReplayCache::insert(Self, Int64, String, @types.PrincipalName, String, Int32) -> Unit raise ProtocolError
 pub fn ReplayCache::len(Self) -> Int32
 pub fn ReplayCache::new(max_skew_secs? : Int64) -> Self
 pub fn ReplayCache::prune(Self, Int64) -> Unit

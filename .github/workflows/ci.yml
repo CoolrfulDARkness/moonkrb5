@@ -20,10 +20,12 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Ensure C toolchain (GCC/Clang for native target)
+      - name: Ensure C toolchain (GCC for native target)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential clang
+          if ! command -v gcc >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends build-essential
+          fi
           gcc --version
 
       - name: Install MoonBit CLI
@@ -35,6 +37,11 @@ jobs:
       - name: Check formatting
         run: moon fmt --check
 
+      - name: Check .mbti interface zero drift
+        run: |
+          moon info
+          git diff --exit-code -- '**/*.mbti'
+
       - name: Check all targets (zero warnings with -d)
         run: |
           moon check --target wasm -d
@@ -42,8 +49,9 @@ jobs:
           moon check --target js -d
           moon check --target native -d
 
-      - name: Run full test suite (wasm-gc, js, native)
+      - name: Run full test suite (wasm, wasm-gc, js, native)
         run: |
+          moon test --target wasm -d
           moon test --target wasm-gc -d
           moon test --target js -d
           moon test --target native -d
@@ -51,8 +59,9 @@ jobs:
       - name: Verify benchmarks build (wasm-gc)
         run: moon bench --target wasm-gc --build-only -d
 
-      - name: Run CLI end-to-end demo (wasm-gc, js, native)
+      - name: Run CLI end-to-end demo (wasm, wasm-gc, js, native)
         run: |
-          moon run --target wasm-gc cmd/main
-          moon run --target js cmd/main
-          moon run --target native cmd/main
+          moon run --target wasm -d cmd/main
+          moon run --target wasm-gc -d cmd/main
+          moon run --target js -d cmd/main
+          moon run --target native -d cmd/main

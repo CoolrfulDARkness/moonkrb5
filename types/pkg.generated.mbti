@@ -379,6 +379,7 @@ pub(all) struct KdcReq {
 }
 pub fn KdcReq::decode_as_req(Bytes) -> Self raise @asn1.DerError
 pub fn KdcReq::decode_tgs_req(Bytes) -> Self raise @asn1.DerError
+pub fn KdcReq::decode_tgs_req_with_raw_body(Bytes) -> (Self, Bytes) raise @asn1.DerError
 pub fn KdcReq::encode_as_req(Self) -> Bytes raise @asn1.DerError
 pub fn KdcReq::encode_tgs_req(Self) -> Bytes raise @asn1.DerError
 pub impl Show for KdcReq

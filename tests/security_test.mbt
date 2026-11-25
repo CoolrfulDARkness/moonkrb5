@@ -122,9 +122,13 @@ fn setup_sec_env(
     kt_decoded,
     max_skew_secs~,
   )
-  let client = @protocol.Client::new(alice, REALM, alice_pw, preferred_etypes=[
-    etype,
-  ])
+  let client = @protocol.Client::new(
+    alice,
+    REALM,
+    alice_pw,
+    preferred_etypes=[etype],
+    min_s2k_iterations=1U,
+  )
   { kdc, client, service, alice, http_svc, rng, etype, alice_key, svc_key, }
 }
 
@@ -424,10 +428,6 @@ test "sec_07: replayed PA-ENC-TIMESTAMP preauth rejected by KDC" {
   )
   assert_eq(@asn1.peek_application_tag(replay_resp), @asn1.APP_KRB_ERROR)
   let krb_err = @types.KrbError::decode(replay_resp)
-  assert_true(
-    krb_err.error_code == @types.KRB_AP_ERR_REPEAT ||
-    krb_err.error_code == @types.KDC_ERR_PREAUTH_FAILED,
-  )
   assert_eq(krb_err.error_code, @types.KRB_AP_ERR_REPEAT)
 }
 
@@ -994,6 +994,7 @@ test "sec_19: wrong password / forged PA-ENC-TIMESTAMP rejected with KDC_ERR_PRE
     REALM,
     b"totally-wrong-password!",
     preferred_etypes=[env.etype],
+    min_s2k_iterations=1U,
   )
   let as_req1 = bad_client.build_as_req(BASE_TIME, env.rng)
   let as_resp1 = env.kdc.handle_message(BASE_TIME, 100, env.rng, as_req1)
@@ -1531,9 +1532,9 @@ test "sec_25: malformed .keytab binary attack suite strictly rejected" {
   }
   assert_true(err_trunc_key)
   // 7. Invalid UTF-8 in realm string
-  // Header 0x0502, entry_size=24, num_components=0, realm_len=2, realm=0xFF 0xFE,
+  // Header 0x0502, entry_size=26 (0x1A), num_components=0, realm_len=2, realm=0xFF 0xFE,
   // name_type=1 (4B), timestamp=0 (4B), vno8=1 (1B), etype=17 (2B), key_len=7 (2B), key=7B
-  let bad_utf8_kt = b"\x05\x02\x00\x00\x00\x18\x00\x00\x00\x02\xFF\xFE\x00\x00\x00\x01\x00\x00\x00\x00\x01\x00\x11\x00\x07\x01\x02\x03\x04\x05\x06\x07"
+  let bad_utf8_kt = b"\x05\x02\x00\x00\x00\x1A\x00\x00\x00\x02\xFF\xFE\x00\x00\x00\x01\x00\x00\x00\x00\x01\x00\x11\x00\x07\x01\x02\x03\x04\x05\x06\x07"
   let mut err_utf8 = false
   try {
     let _ = @keytab.Keytab::decode(bad_utf8_kt)
@@ -1581,4 +1582,395 @@ test "sec_26: truncated and sub-MAC ciphertexts rejected across all 4 etypes" {
       assert_true(got_integrity)
     }
   }
+}
+
+///|
+test "sec_27: MITM forged PA-ETYPE-INFO2 PBKDF2 1-iter downgrade and DoS rejected by Client" {
+  let etype = @crypto.Enctype::Aes256CtsHmacSha384_192
+  let rng = @crypto.DeterministicRng::new(b"sec_27_s2k_downgrade")
+  let alice = @types.PrincipalName::user("alice")
+  let alice_pw = b"alice-strong-pw!"
+  // Case A: Default Client (min=4096U, max=500_000U) rejects 1-iteration downgrade
+  let client_low = @protocol.Client::new(alice, REALM, alice_pw, preferred_etypes=[
+    etype,
+  ])
+  let _ = client_low.build_as_req(BASE_TIME, rng)
+  let info2_1iter = @types.encode_etype_info2([
+    {
+      etype: etype.to_int(),
+      salt: Some(REALM + "alice"),
+      s2kparams: Some(b"\x00\x00\x00\x01"),
+    },
+  ])
+  let method_1iter = @types.encode_method_data([
+    { padata_type: @types.PA_ETYPE_INFO2, padata_value: info2_1iter, },
+  ])
+  let mitm_err_low : @types.KrbError = {
+    pvno: @types.KRB5_PVNO,
+    msg_type: @types.MSG_KRB_ERROR,
+    ctime: None,
+    cusec: None,
+    stime: @types.unix_to_kerberos_time(BASE_TIME),
+    susec: 0,
+    error_code: @types.KDC_ERR_PREAUTH_REQUIRED,
+    crealm: Some(REALM),
+    cname: Some(alice),
+    realm: REALM,
+    sname: @types.PrincipalName::service("krbtgt", REALM),
+    e_text: Some("Preauth required"),
+    e_data: Some(method_1iter),
+  }
+  let mut rejected_low = false
+  try {
+    let _ = client_low.handle_as_response(
+      BASE_TIME + 1L,
+      10,
+      rng,
+      mitm_err_low.encode(),
+    )
+  } catch {
+    @protocol.ProtocolError::PreauthFailed(_) => rejected_low = true
+    _ => ()
+  }
+  assert_true(rejected_low)
+  // Case B: Default Client rejects excessive iteration count (1_000_000 = 0x000F4240) DoS
+  let client_high = @protocol.Client::new(alice, REALM, alice_pw, preferred_etypes=[
+    etype,
+  ])
+  let _ = client_high.build_as_req(BASE_TIME, rng)
+  let info2_dos = @types.encode_etype_info2([
+    {
+      etype: etype.to_int(),
+      salt: Some(REALM + "alice"),
+      s2kparams: Some(b"\x00\x0F\x42\x40"),
+    },
+  ])
+  let method_dos = @types.encode_method_data([
+    { padata_type: @types.PA_ETYPE_INFO2, padata_value: info2_dos, },
+  ])
+  let mitm_err_high : @types.KrbError = {
+    ..mitm_err_low,
+    e_data: Some(method_dos),
+  }
+  let mut rejected_high = false
+  try {
+    let _ = client_high.handle_as_response(
+      BASE_TIME + 1L,
+      11,
+      rng,
+      mitm_err_high.encode(),
+    )
+  } catch {
+    @protocol.ProtocolError::PreauthFailed(_) => rejected_high = true
+    _ => ()
+  }
+  assert_true(rejected_high)
+}
+
+///|
+test "sec_28: MITM tampered outer AS-REP.ticket or switched etype rejected by Client" {
+  // Case A: Outer AS-REP.ticket.sname tampered by MITM
+  let env_a = setup_sec_env(
+    @crypto.Enctype::Aes256CtsHmacSha384_192,
+    b"sec_28_a_seed",
+  )
+  let as_req1 = env_a.client.build_as_req(BASE_TIME, env_a.rng)
+  let as_resp1 = env_a.kdc.handle_message(BASE_TIME, 100, env_a.rng, as_req1)
+  let as_req2 = match
+    env_a.client.handle_as_response(BASE_TIME + 1L, 200, env_a.rng, as_resp1) {
+    @protocol.AsStepResult::NeedPreauthRetry(der) => der
+    @protocol.AsStepResult::GotTgt(_) => fail("expected preauth retry")
+  }
+  let as_resp2 = env_a.kdc.handle_message(
+    BASE_TIME + 1L,
+    300,
+    env_a.rng,
+    as_req2,
+  )
+  let rep_a = @types.KdcRep::decode_as_rep(as_resp2)
+  let tampered_sname_rep : @types.KdcRep = {
+    ..rep_a,
+    ticket: {
+      ..rep_a.ticket,
+      sname: @types.PrincipalName::service("HTTP", "evil.example.com"),
+    },
+  }
+  let mut rejected_sname = false
+  try {
+    let _ = env_a.client.handle_as_response(
+      BASE_TIME + 1L,
+      400,
+      env_a.rng,
+      tampered_sname_rep.encode_as_rep(),
+    )
+  } catch {
+    @protocol.ProtocolError::WrongService(_) => rejected_sname = true
+    _ => ()
+  }
+  assert_true(rejected_sname)
+  // Case B: Outer AS-REP.ticket.realm tampered by MITM
+  let tampered_realm_rep : @types.KdcRep = {
+    ..rep_a,
+    ticket: { ..rep_a.ticket, realm: "EVIL.COM", },
+  }
+  let mut rejected_realm = false
+  try {
+    let _ = env_a.client.handle_as_response(
+      BASE_TIME + 1L,
+      401,
+      env_a.rng,
+      tampered_realm_rep.encode_as_rep(),
+    )
+  } catch {
+    @protocol.ProtocolError::WrongService(_) => rejected_realm = true
+    _ => ()
+  }
+  assert_true(rejected_realm)
+  // Case C: MITM switches AS-REP enc_part.etype away from pre-authenticated etype
+  let switched_et_rep : @types.KdcRep = {
+    ..rep_a,
+    enc_part: {
+      ..rep_a.enc_part,
+      etype: @crypto.Enctype::Aes128CtsHmacSha256_128.to_int(),
+    },
+  }
+  let mut rejected_switch = false
+  try {
+    let _ = env_a.client.handle_as_response(
+      BASE_TIME + 1L,
+      402,
+      env_a.rng,
+      switched_et_rep.encode_as_rep(),
+    )
+  } catch {
+    @protocol.ProtocolError::UnsupportedEnctype(_)
+    | @protocol.ProtocolError::PreauthFailed(_) => rejected_switch = true
+    _ => ()
+  }
+  assert_true(rejected_switch)
+}
+
+///|
+test "sec_29: MITM tampered outer TGS-REP.ticket or wrong EncTgsRepPart sname rejected by Client" {
+  // Case A: Outer TGS-REP.ticket.sname tampered by MITM
+  let env_a = setup_sec_env(
+    @crypto.Enctype::Aes256CtsHmacSha384_192,
+    b"sec_29_a_seed",
+  )
+  let tgt_a = run_as_exchange(env_a, BASE_TIME)
+  let tgs_req_a = env_a.client.build_tgs_req(
+    env_a.http_svc,
+    BASE_TIME + 5L,
+    100,
+    env_a.rng,
+  )
+  let tgs_resp_a = env_a.kdc.handle_message(
+    BASE_TIME + 5L,
+    101,
+    env_a.rng,
+    tgs_req_a,
+  )
+  let rep_a = @types.KdcRep::decode_tgs_rep(tgs_resp_a)
+  let tampered_outer : @types.KdcRep = {
+    ..rep_a,
+    ticket: {
+      ..rep_a.ticket,
+      sname: @types.PrincipalName::service("HTTP", "spoofed.example.com"),
+    },
+  }
+  let mut rejected_outer = false
+  try {
+    let _ = env_a.client.handle_tgs_response(tampered_outer.encode_tgs_rep())
+  } catch {
+    @protocol.ProtocolError::WrongService(_) => rejected_outer = true
+    _ => ()
+  }
+  assert_true(rejected_outer)
+  // Case B: EncTgsRepPart.sname does not match requested service
+  let plain_a = @crypto.decrypt(
+    env_a.etype,
+    tgt_a.session_key.keyvalue,
+    @crypto.KU_TGS_REP_ENCPART_SESSION_KEY,
+    rep_a.enc_part.cipher,
+  )
+  let enc_tgs = @types.EncKdcRepPart::decode_enc_tgs_rep_part(plain_a)
+  let wrong_svc = @types.PrincipalName::service("HTTP", "wrong.example.com")
+  let forged_enc : @types.EncKdcRepPart = { ..enc_tgs, sname: wrong_svc, }
+  let forged_rep : @types.KdcRep = {
+    ..rep_a,
+    ticket: { ..rep_a.ticket, sname: wrong_svc, },
+    enc_part: make_enc_data(
+      env_a.etype,
+      tgt_a.session_key.keyvalue,
+      None,
+      @crypto.KU_TGS_REP_ENCPART_SESSION_KEY,
+      forged_enc.encode_enc_tgs_rep_part(),
+      env_a.rng,
+    ),
+  }
+  let mut rejected_wrong_svc = false
+  try {
+    let _ = env_a.client.handle_tgs_response(forged_rep.encode_tgs_rep())
+  } catch {
+    @protocol.ProtocolError::WrongService(_) => rejected_wrong_svc = true
+    _ => ()
+  }
+  assert_true(rejected_wrong_svc)
+}
+
+///|
+test "sec_30: MITM tampered TGS-REQ req_body does NOT poison KDC ReplayCache" {
+  let env = setup_sec_env(
+    @crypto.Enctype::Aes256CtsHmacSha384_192,
+    b"sec_30_seed",
+  )
+  let other_svc = @types.PrincipalName::service("HTTP", "admin.example.com")
+  env.kdc.add_principal_with_password(
+    other_svc,
+    b"admin-pw!",
+    [env.etype],
+    kvno=1U,
+    s2kparams=fast_s2k(),
+  )
+  let _ = run_as_exchange(env, BASE_TIME)
+  let legit_tgs_req_der = env.client.build_tgs_req(
+    env.http_svc,
+    BASE_TIME + 5L,
+    555,
+    env.rng,
+  )
+  // MITM intercepts legit_tgs_req_der and modifies req_body.sname before KDC sees it
+  let decoded = @types.KdcReq::decode_tgs_req(legit_tgs_req_der)
+  let tampered_req : @types.KdcReq = {
+    ..decoded,
+    req_body: { ..decoded.req_body, sname: Some(other_svc), },
+  }
+  let mitm_resp = env.kdc.handle_message(
+    BASE_TIME + 5L,
+    556,
+    env.rng,
+    tampered_req.encode_tgs_req(),
+  )
+  assert_eq(@asn1.peek_application_tag(mitm_resp), @asn1.APP_KRB_ERROR)
+  assert_eq(
+    @types.KrbError::decode(mitm_resp).error_code,
+    @types.KRB_AP_ERR_MODIFIED,
+  )
+  // Now the legitimate TGS-REQ (with the exact same Authenticator) arrives and MUST succeed!
+  let legit_resp = env.kdc.handle_message(
+    BASE_TIME + 5L,
+    557,
+    env.rng,
+    legit_tgs_req_der,
+  )
+  assert_eq(@asn1.peek_application_tag(legit_resp), @asn1.APP_TGS_REP)
+  let svc_cred = env.client.handle_tgs_response(legit_resp)
+  assert_eq(svc_cred.server, env.http_svc)
+}
+
+///|
+test "sec_31: Service rejects AP_OPT_USE_SESSION_KEY and KDC rejects unsupported kdc_options" {
+  let env = setup_sec_env(
+    @crypto.Enctype::Aes256CtsHmacSha384_192,
+    b"sec_31_seed",
+  )
+  let _ = run_as_exchange(env, BASE_TIME)
+  let svc_cred = run_tgs_exchange(env, env.http_svc, BASE_TIME + 5L, 100)
+  // Part A: Service rejects AP_OPT_USE_SESSION_KEY
+  let ap_req_der = env.client.build_ap_req(
+    svc_cred,
+    BASE_TIME + 10L,
+    200,
+    env.rng,
+    mutual_required=false,
+  )
+  let ap_req = @types.ApReq::decode(ap_req_der)
+  let bad_opt_ap_req : @types.ApReq = {
+    ..ap_req,
+    ap_options: @types.AP_OPT_USE_SESSION_KEY,
+  }
+  let mut svc_rejected = false
+  try {
+    let _ = env.service.verify_ap_req(
+      BASE_TIME + 10L,
+      env.rng,
+      bad_opt_ap_req.encode(),
+    )
+  } catch {
+    @protocol.ProtocolError::UnexpectedMessage(_) => svc_rejected = true
+    _ => ()
+  }
+  assert_true(svc_rejected)
+  // Part B: KDC rejects unsupported kdc_options with KDC_ERR_BADOPTION (13)
+  let unsupported_opts = [
+    @types.KDC_OPT_ALLOW_POSTDATE,
+    @types.KDC_OPT_RENEW,
+    @types.KDC_OPT_VALIDATE,
+    @types.KDC_OPT_ENC_TKT_IN_SKEY,
+  ]
+  for i = 0; i < unsupported_opts.length(); i = i + 1 {
+    let opt = unsupported_opts[i]
+    let bad_as_body : @types.KdcReqBody = {
+      kdc_options: opt,
+      cname: Some(env.alice),
+      realm: REALM,
+      sname: Some(@types.PrincipalName::service("krbtgt", REALM)),
+      from: None,
+      till: @types.unix_to_kerberos_time(BASE_TIME + 3600L),
+      rtime: None,
+      nonce: 0x3100U + i.reinterpret_as_uint(),
+      etype: [env.etype.to_int()],
+      addresses: None,
+      enc_authorization_data: None,
+      additional_tickets: None,
+    }
+    let bad_as_req : @types.KdcReq = {
+      pvno: @types.KRB5_PVNO,
+      msg_type: @types.MSG_AS_REQ,
+      padata: None,
+      req_body: bad_as_body,
+    }
+    let resp = env.kdc.handle_message(
+      BASE_TIME + 10L,
+      300 + i,
+      env.rng,
+      bad_as_req.encode_as_req(),
+    )
+    assert_eq(@asn1.peek_application_tag(resp), @asn1.APP_KRB_ERROR)
+    assert_eq(
+      @types.KrbError::decode(resp).error_code,
+      @types.KDC_ERR_BADOPTION,
+    )
+  }
+}
+
+///|
+test "sec_32: same-timestamp AS-REQ and TGS-REQ do not collide in KDC replay cache" {
+  let env = setup_sec_env(
+    @crypto.Enctype::Aes256CtsHmacSha384_192,
+    b"sec_32_seed",
+  )
+  let shared_ts = BASE_TIME + 1L
+  let shared_usec = 777
+  let as_req1 = env.client.build_as_req(BASE_TIME, env.rng)
+  let as_resp1 = env.kdc.handle_message(BASE_TIME, 100, env.rng, as_req1)
+  let as_req2 = match
+    env.client.handle_as_response(shared_ts, shared_usec, env.rng, as_resp1) {
+    @protocol.AsStepResult::NeedPreauthRetry(der) => der
+    @protocol.AsStepResult::GotTgt(_) => fail("expected preauth retry")
+  }
+  let as_resp2 = env.kdc.handle_message(shared_ts, 300, env.rng, as_req2)
+  assert_eq(@asn1.peek_application_tag(as_resp2), @asn1.APP_AS_REP)
+  let _ = env.client.handle_as_response(shared_ts, 400, env.rng, as_resp2)
+  // Issue TGS-REQ with the EXACT SAME (ctime, cusec) as the PA-ENC-TIMESTAMP above!
+  let tgs_req = env.client.build_tgs_req(
+    env.http_svc,
+    shared_ts,
+    shared_usec,
+    env.rng,
+  )
+  let tgs_resp = env.kdc.handle_message(shared_ts, 500, env.rng, tgs_req)
+  assert_eq(@asn1.peek_application_tag(tgs_resp), @asn1.APP_TGS_REP)
+  let svc_cred = env.client.handle_tgs_response(tgs_resp)
+  assert_eq(svc_cred.server, env.http_svc)
 }

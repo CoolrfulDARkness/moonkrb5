@@ -160,9 +160,13 @@ test "bench_full_krb5_handshake_aes256_sha384" (b : @bench.T) {
     kdc.add_principal_keys(alice, 1U, [alice_pk])
     kdc.add_principal_keys(http_svc, 1U, [svc_pk])
     let service = @protocol.Service::new(realm, http_svc, kt)
-    let client = @protocol.Client::new(alice, realm, alice_pw, preferred_etypes=[
-      etype,
-    ])
+    let client = @protocol.Client::new(
+      alice,
+      realm,
+      alice_pw,
+      preferred_etypes=[etype],
+      min_s2k_iterations=1U,
+    )
     let ok = try {
       let as_req1 = client.build_as_req(t0, rng)
       let as_resp1 = kdc.handle_message(t0, 1, rng, as_req1)

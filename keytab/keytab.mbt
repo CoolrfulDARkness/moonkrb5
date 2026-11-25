@@ -415,7 +415,11 @@ fn decode_entry(
   }
   cur += key_len
   let mut kvno = vno8
-  if entry_end - cur >= 4 {
+  let rem = entry_end - cur
+  if rem > 0 && rem < 4 {
+    raise TruncatedEntry
+  }
+  if rem >= 4 {
     let vno32 = read_u32_be(data, cur)
     if vno32 != 0U || vno8 == 0U {
       kvno = vno32

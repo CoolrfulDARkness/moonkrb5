@@ -35,6 +35,15 @@ fn default_salt(realm : String, name : @types.PrincipalName) -> String {
 }
 
 ///|
+/// RFC 4120 §6.2 principal equality compares name components regardless of `name_type`.
+fn principal_names_equal(
+  a : @types.PrincipalName,
+  b : @types.PrincipalName,
+) -> Bool {
+  a.name_string == b.name_string
+}
+
+///|
 /// Collision-free canonical lookup key for a principal's components.
 fn principal_lookup_key(name : @types.PrincipalName) -> String {
   let buf = StringBuilder()
