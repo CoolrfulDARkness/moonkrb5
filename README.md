@@ -147,6 +147,22 @@ match client.handle_as_response(now_unix_secs, usec, rng, kdc_reply_der) {
 
 ---
 
+## Benchmarks / 性能基准实测（Wasm-GC）
+
+Measured with `moon bench --target wasm-gc -d tests` (pure MoonBit, zero FFI):
+
+| Benchmark | Mean | Range |
+| :--- | :---: | :---: |
+| `bench_keytab_roundtrip` (4-key `.keytab` encode + decode) | **2.95 µs** | 2.82 µs … 3.17 µs |
+| `bench_asn1_der_ticket_roundtrip` (RFC 4120 `Ticket` DER) | **4.60 µs** | 4.36 µs … 4.90 µs |
+| `bench_crypto_aes128_sha1_enc_dec` (etype 17, 256B) | **249.30 µs** | 244.28 µs … 255.49 µs |
+| `bench_crypto_aes128_sha256_enc_dec` (etype 19, 256B) | **256.16 µs** | 251.01 µs … 264.56 µs |
+| `bench_crypto_aes256_sha1_enc_dec` (etype 18, 256B) | **368.20 µs** | 361.63 µs … 373.62 µs |
+| `bench_crypto_aes256_sha384_enc_dec` (etype 20, 256B) | **386.75 µs** | 363.90 µs … 404.23 µs |
+| `bench_full_krb5_handshake_aes256_sha384` (Full AS+TGS+AP+AP-REP) | **2.07 ms** | 2.01 ms … 2.15 ms |
+
+---
+
 ## Security Features Checklist / 安全特性清单
 
 - [x] **Constant-Time Tag Verification**: All HMAC/checksum comparisons use branchless XOR accumulation (`@crypto.ct_eq`) to prevent timing side-channels.

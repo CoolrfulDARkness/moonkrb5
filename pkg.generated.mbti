@@ -1,0 +1,45 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "CoolrfulDARkness/moonkrb5"
+
+import {
+  "CoolrfulDARkness/moonkrb5/crypto",
+  "CoolrfulDARkness/moonkrb5/protocol",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn all_enctypes() -> Array[@crypto.Enctype]
+
+pub fn run_full_handshake_demo(@crypto.Enctype) -> HandshakeReport raise @protocol.ProtocolError
+
+pub fn run_rfc_vector_self_check() -> Array[(String, Bool)]
+
+pub fn run_security_defense_demo() -> Array[(String, Bool)]
+
+pub fn version() -> String
+
+// Errors
+
+// Types and methods
+#derive(Eq, @debug.Debug)
+pub(all) struct HandshakeReport {
+  etype_name : String
+  etype_id : Int32
+  as_req_bytes : Int32
+  preauth_err_bytes : Int32
+  as_req_preauth_bytes : Int32
+  as_rep_bytes : Int32
+  tgs_req_bytes : Int32
+  tgs_rep_bytes : Int32
+  keytab_bytes : Int32
+  ap_req_bytes : Int32
+  ap_rep_bytes : Int32
+  client_principal : String
+  service_principal : String
+  mutual_authenticated : Bool
+}
+pub impl Show for HandshakeReport
+
+// Type aliases
+
+// Traits
