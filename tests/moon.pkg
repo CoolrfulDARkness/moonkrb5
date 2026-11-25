@@ -1,0 +1,8 @@
+import {
+  "CoolrfulDARkness/moonkrb5/asn1",
+  "CoolrfulDARkness/moonkrb5/crypto",
+  "CoolrfulDARkness/moonkrb5/keytab",
+  "CoolrfulDARkness/moonkrb5/types",
+  "CoolrfulDARkness/moonkrb5/protocol",
+  "moonbitlang/core/bench",
+} for "test"
