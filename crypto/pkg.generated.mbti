@@ -1,0 +1,137 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "CoolrfulDARkness/moonkrb5/crypto"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub const KU_AP_REP_ENCPART : Int32 = 12
+
+pub const KU_AP_REQ_AUTH : Int32 = 11
+
+pub const KU_AP_REQ_AUTH_CKSUM : Int32 = 10
+
+pub const KU_AS_REP_ENCPART : Int32 = 3
+
+pub const KU_AS_REQ_PA_ENC_TIMESTAMP : Int32 = 1
+
+pub const KU_KRB_CRED : Int32 = 14
+
+pub const KU_KRB_PRIV : Int32 = 13
+
+pub const KU_KRB_SAFE : Int32 = 15
+
+pub const KU_TGS_REP_ENCPART_AUTH_SUBKEY : Int32 = 9
+
+pub const KU_TGS_REP_ENCPART_SESSION_KEY : Int32 = 8
+
+pub const KU_TGS_REQ_AUTH : Int32 = 7
+
+pub const KU_TGS_REQ_AUTH_CKSUM : Int32 = 6
+
+pub const KU_TGS_REQ_KDC_REQ_BODY_AD : Int32 = 4
+
+pub const KU_TGS_REQ_KDC_REQ_BODY_AD_SUBKEY : Int32 = 5
+
+pub const KU_TICKET : Int32 = 2
+
+pub fn aes_cts_decrypt(Bytes, Bytes, Bytes) -> Bytes raise CryptoError
+
+pub fn aes_cts_encrypt(Bytes, Bytes, Bytes) -> Bytes raise CryptoError
+
+pub fn ct_eq(Bytes, Bytes) -> Bool
+
+pub fn decrypt(Enctype, Bytes, Int32, Bytes) -> Bytes raise CryptoError
+
+pub fn derive_key(Enctype, Bytes, Bytes) -> Bytes raise CryptoError
+
+pub fn derive_random(Enctype, Bytes, Bytes) -> Bytes raise CryptoError
+
+pub fn encrypt(Enctype, Bytes, Int32, Bytes, Bytes) -> Bytes raise CryptoError
+
+pub fn hmac_sha1(Bytes, Bytes) -> Bytes
+
+pub fn hmac_sha256(Bytes, Bytes) -> Bytes
+
+pub fn hmac_sha384(Bytes, Bytes) -> Bytes
+
+pub fn kdf_hmac_sha2(Enctype, Bytes, Bytes, Bytes?, Int32) -> Bytes raise CryptoError
+
+pub fn make_checksum(ChecksumType, Bytes, Int32, Bytes) -> Bytes raise CryptoError
+
+pub fn n_fold(Bytes, Int32) -> Bytes
+
+pub fn pbkdf2_hmac_sha1(Bytes, Bytes, Int32, Int32) -> Bytes raise CryptoError
+
+pub fn pbkdf2_hmac_sha256(Bytes, Bytes, Int32, Int32) -> Bytes raise CryptoError
+
+pub fn pbkdf2_hmac_sha384(Bytes, Bytes, Int32, Int32) -> Bytes raise CryptoError
+
+pub fn sha1(Bytes) -> Bytes
+
+pub fn sha256(Bytes) -> Bytes
+
+pub fn sha384(Bytes) -> Bytes
+
+pub fn string_to_key(Enctype, Bytes, Bytes, Bytes?) -> Bytes raise CryptoError
+
+pub fn verify_checksum(ChecksumType, Bytes, Int32, Bytes, Bytes) -> Bool raise CryptoError
+
+// Errors
+#derive(Eq, @debug.Debug)
+pub suberror CryptoError {
+  UnsupportedEnctype(Int32)
+  UnsupportedChecksumType(Int32)
+  InvalidKeyLength(expected~ : Int32, got~ : Int32)
+  InvalidConfounderLength(expected~ : Int32, got~ : Int32)
+  CiphertextTooShort
+  IntegrityCheckFailed
+  InvalidS2kParams(String)
+  InvalidIterationCount
+  InvalidInput(String)
+}
+pub impl Show for CryptoError
+
+// Types and methods
+#derive(Eq, @debug.Debug)
+pub(all) enum ChecksumType {
+  HmacSha1_96Aes128
+  HmacSha1_96Aes256
+  HmacSha256_128Aes128
+  HmacSha384_192Aes256
+}
+pub fn ChecksumType::from_int(Int32) -> Self raise CryptoError
+pub fn ChecksumType::mac_size(Self) -> Int32
+pub fn ChecksumType::to_int(Self) -> Int32
+pub impl Show for ChecksumType
+
+pub struct DeterministicRng {
+  state_key : Bytes
+  mut counter : UInt64
+  buf : FixedArray[Byte]
+  mut pos : Int32
+}
+pub fn DeterministicRng::new(Bytes) -> Self
+pub fn DeterministicRng::next_bytes(Self, Int32) -> Bytes
+pub fn DeterministicRng::next_u32(Self) -> UInt32
+
+#derive(Eq, @debug.Debug)
+pub(all) enum Enctype {
+  Aes128CtsHmacSha1_96
+  Aes256CtsHmacSha1_96
+  Aes128CtsHmacSha256_128
+  Aes256CtsHmacSha384_192
+}
+pub fn Enctype::confounder_size(Self) -> Int32
+pub fn Enctype::default_checksum_type(Self) -> ChecksumType
+pub fn Enctype::from_int(Int32) -> Self raise CryptoError
+pub fn Enctype::key_size(Self) -> Int32
+pub fn Enctype::mac_size(Self) -> Int32
+pub fn Enctype::name(Self) -> String
+pub fn Enctype::to_int(Self) -> Int32
+pub impl Show for Enctype
+
+// Type aliases
+
+// Traits

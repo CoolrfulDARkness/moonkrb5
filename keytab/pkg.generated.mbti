@@ -1,0 +1,52 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "CoolrfulDARkness/moonkrb5/keytab"
+
+import {
+  "moonbitlang/core/debug",
+}
+
+// Values
+
+// Errors
+#derive(Eq, @debug.Debug)
+pub suberror KeytabError {
+  UnexpectedEof
+  UnsupportedVersion(Int32)
+  InvalidEntrySize(Int32)
+  InvalidUtf8
+  TruncatedEntry
+  FieldTooLarge(String)
+  KeyNotFound
+}
+pub impl Show for KeytabError
+
+// Types and methods
+#derive(Eq, @debug.Debug)
+pub(all) struct Keytab {
+  version : Int32
+  entries : Array[KeytabEntry]
+}
+pub fn Keytab::add_entry(Self, KeytabEntry) -> Unit
+pub fn Keytab::decode(Bytes) -> Self raise KeytabError
+pub fn Keytab::encode(Self) -> Bytes raise KeytabError
+pub fn Keytab::find_all_for_principal(Self, String, Array[String]) -> Array[KeytabEntry]
+pub fn Keytab::find_key(Self, String, Array[String], Int32, kvno? : UInt32) -> KeytabEntry?
+pub fn Keytab::get_key(Self, String, Array[String], Int32, kvno? : UInt32) -> KeytabEntry raise KeytabError
+pub fn Keytab::new() -> Self
+pub impl Show for Keytab
+
+#derive(Eq, @debug.Debug)
+pub(all) struct KeytabEntry {
+  realm : String
+  components : Array[String]
+  name_type : Int32
+  timestamp : UInt32
+  kvno : UInt32
+  etype : Int32
+  key : Bytes
+}
+pub impl Show for KeytabEntry
+
+// Type aliases
+
+// Traits

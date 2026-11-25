@@ -1,0 +1,495 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "CoolrfulDARkness/moonkrb5/types"
+
+import {
+  "CoolrfulDARkness/moonkrb5/asn1",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub const AP_OPT_MUTUAL_REQUIRED : UInt32 = 0x20000000
+
+pub const AP_OPT_USE_SESSION_KEY : UInt32 = 0x40000000
+
+pub const KDC_ERR_BADOPTION : Int32 = 13
+
+pub const KDC_ERR_BAD_PVNO : Int32 = 3
+
+pub const KDC_ERR_CANNOT_POSTDATE : Int32 = 10
+
+pub const KDC_ERR_CLIENT_NOTYET : Int32 = 21
+
+pub const KDC_ERR_CLIENT_REVOKED : Int32 = 18
+
+pub const KDC_ERR_C_OLD_MAST_KVNO : Int32 = 4
+
+pub const KDC_ERR_C_PRINCIPAL_UNKNOWN : Int32 = 6
+
+pub const KDC_ERR_ETYPE_NOSUPP : Int32 = 14
+
+pub const KDC_ERR_KEY_EXPIRED : Int32 = 23
+
+pub const KDC_ERR_NAME_EXP : Int32 = 1
+
+pub const KDC_ERR_NEVER_VALID : Int32 = 11
+
+pub const KDC_ERR_NONE : Int32 = 0
+
+pub const KDC_ERR_NULL_KEY : Int32 = 9
+
+pub const KDC_ERR_PADATA_TYPE_NOSUPP : Int32 = 16
+
+pub const KDC_ERR_POLICY : Int32 = 12
+
+pub const KDC_ERR_PREAUTH_FAILED : Int32 = 24
+
+pub const KDC_ERR_PREAUTH_REQUIRED : Int32 = 25
+
+pub const KDC_ERR_PRINCIPAL_NOT_UNIQUE : Int32 = 8
+
+pub const KDC_ERR_SERVICE_EXP : Int32 = 2
+
+pub const KDC_ERR_SERVICE_NOTYET : Int32 = 22
+
+pub const KDC_ERR_SERVICE_REVOKED : Int32 = 19
+
+pub const KDC_ERR_SUMTYPE_NOSUPP : Int32 = 15
+
+pub const KDC_ERR_S_OLD_MAST_KVNO : Int32 = 5
+
+pub const KDC_ERR_S_PRINCIPAL_UNKNOWN : Int32 = 7
+
+pub const KDC_ERR_TGT_REVOKED : Int32 = 20
+
+pub const KDC_ERR_TRTYPE_NOSUPP : Int32 = 17
+
+pub const KDC_OPT_ALLOW_POSTDATE : UInt32 = 0x04000000
+
+pub const KDC_OPT_CANONICALIZE : UInt32 = 0x00010000
+
+pub const KDC_OPT_ENC_TKT_IN_SKEY : UInt32 = 0x00000008
+
+pub const KDC_OPT_FORWARDABLE : UInt32 = 0x40000000
+
+pub const KDC_OPT_PROXIABLE : UInt32 = 0x10000000
+
+pub const KDC_OPT_RENEW : UInt32 = 0x00000002
+
+pub const KDC_OPT_RENEWABLE : UInt32 = 0x00800000
+
+pub const KDC_OPT_RENEWABLE_OK : UInt32 = 0x00000010
+
+pub const KDC_OPT_VALIDATE : UInt32 = 0x00000001
+
+pub const KRB5_PVNO : Int32 = 5
+
+pub const KRB_AP_ERR_BADADDR : Int32 = 38
+
+pub const KRB_AP_ERR_BADKEYVER : Int32 = 44
+
+pub const KRB_AP_ERR_BADMATCH : Int32 = 36
+
+pub const KRB_AP_ERR_BADORDER : Int32 = 42
+
+pub const KRB_AP_ERR_BADVERSION : Int32 = 39
+
+pub const KRB_AP_ERR_BAD_INTEGRITY : Int32 = 31
+
+pub const KRB_AP_ERR_MODIFIED : Int32 = 41
+
+pub const KRB_AP_ERR_MSG_TYPE : Int32 = 40
+
+pub const KRB_AP_ERR_MUT_FAIL : Int32 = 46
+
+pub const KRB_AP_ERR_NOKEY : Int32 = 45
+
+pub const KRB_AP_ERR_NOT_US : Int32 = 35
+
+pub const KRB_AP_ERR_REPEAT : Int32 = 34
+
+pub const KRB_AP_ERR_SKEW : Int32 = 37
+
+pub const KRB_AP_ERR_TKT_EXPIRED : Int32 = 32
+
+pub const KRB_AP_ERR_TKT_NYV : Int32 = 33
+
+pub const KRB_ERR_GENERIC : Int32 = 60
+
+pub const MSG_AP_REP : Int32 = 15
+
+pub const MSG_AP_REQ : Int32 = 14
+
+pub const MSG_AS_REP : Int32 = 11
+
+pub const MSG_AS_REQ : Int32 = 10
+
+pub const MSG_KRB_CRED : Int32 = 22
+
+pub const MSG_KRB_ERROR : Int32 = 30
+
+pub const MSG_KRB_PRIV : Int32 = 21
+
+pub const MSG_KRB_SAFE : Int32 = 20
+
+pub const MSG_TGS_REP : Int32 = 13
+
+pub const MSG_TGS_REQ : Int32 = 12
+
+pub const NT_ENTERPRISE : Int32 = 10
+
+pub const NT_PRINCIPAL : Int32 = 1
+
+pub const NT_SRV_HST : Int32 = 3
+
+pub const NT_SRV_INST : Int32 = 2
+
+pub const NT_SRV_XHST : Int32 = 4
+
+pub const NT_UID : Int32 = 5
+
+pub const NT_UNKNOWN : Int32 = 0
+
+pub const PA_ENC_TIMESTAMP : Int32 = 2
+
+pub const PA_ETYPE_INFO : Int32 = 11
+
+pub const PA_ETYPE_INFO2 : Int32 = 19
+
+pub const PA_PW_SALT : Int32 = 3
+
+pub const PA_TGS_REQ : Int32 = 1
+
+pub const TKT_FLAG_FORWARDABLE : UInt32 = 0x40000000
+
+pub const TKT_FLAG_FORWARDED : UInt32 = 0x20000000
+
+pub const TKT_FLAG_HW_AUTHENT : UInt32 = 0x00100000
+
+pub const TKT_FLAG_INITIAL : UInt32 = 0x00400000
+
+pub const TKT_FLAG_INVALID : UInt32 = 0x01000000
+
+pub const TKT_FLAG_MAY_POSTDATE : UInt32 = 0x04000000
+
+pub const TKT_FLAG_POSTDATED : UInt32 = 0x02000000
+
+pub const TKT_FLAG_PRE_AUTHENT : UInt32 = 0x00200000
+
+pub const TKT_FLAG_PROXIABLE : UInt32 = 0x10000000
+
+pub const TKT_FLAG_PROXY : UInt32 = 0x08000000
+
+pub const TKT_FLAG_RENEWABLE : UInt32 = 0x00800000
+
+pub fn decode_etype_info2(Bytes) -> Array[EtypeInfo2Entry] raise @asn1.DerError
+
+pub fn decode_method_data(Bytes) -> Array[PaData] raise @asn1.DerError
+
+pub fn decode_tcp_frame(Bytes) -> (Bytes, Int32) raise @asn1.DerError
+
+pub fn encode_etype_info2(Array[EtypeInfo2Entry]) -> Bytes
+
+pub fn encode_method_data(Array[PaData]) -> Bytes
+
+pub fn encode_tcp_frame(Bytes) -> Bytes
+
+pub fn kerberos_time_to_unix(String) -> Int64 raise @asn1.DerError
+
+pub fn unix_to_kerberos_time(Int64) -> String raise @asn1.DerError
+
+// Errors
+
+// Types and methods
+#derive(Eq, @debug.Debug)
+pub(all) struct ApRep {
+  pvno : Int32
+  msg_type : Int32
+  enc_part : EncryptedData
+}
+pub fn ApRep::decode(Bytes) -> Self raise @asn1.DerError
+pub fn ApRep::encode(Self) -> Bytes raise @asn1.DerError
+pub fn ApRep::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn ApRep::to_der(Self) -> @asn1.DerValue raise @asn1.DerError
+pub impl Show for ApRep
+
+#derive(Eq, @debug.Debug)
+pub(all) struct ApReq {
+  pvno : Int32
+  msg_type : Int32
+  ap_options : UInt32
+  ticket : Ticket
+  authenticator : EncryptedData
+}
+pub fn ApReq::decode(Bytes) -> Self raise @asn1.DerError
+pub fn ApReq::encode(Self) -> Bytes raise @asn1.DerError
+pub fn ApReq::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn ApReq::to_der(Self) -> @asn1.DerValue raise @asn1.DerError
+pub impl Show for ApReq
+
+#derive(Eq, @debug.Debug)
+pub(all) struct Authenticator {
+  authenticator_vno : Int32
+  crealm : String
+  cname : PrincipalName
+  cksum : Checksum?
+  cusec : Int32
+  ctime : String
+  subkey : EncryptionKey?
+  seq_number : UInt32?
+  authorization_data : Array[AuthorizationDataEntry]?
+}
+pub fn Authenticator::decode(Bytes) -> Self raise @asn1.DerError
+pub fn Authenticator::encode(Self) -> Bytes raise @asn1.DerError
+pub fn Authenticator::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn Authenticator::to_der(Self) -> @asn1.DerValue raise @asn1.DerError
+pub impl Show for Authenticator
+
+#derive(Eq, @debug.Debug)
+pub(all) struct AuthorizationDataEntry {
+  ad_type : Int32
+  ad_data : Bytes
+}
+pub fn AuthorizationDataEntry::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn AuthorizationDataEntry::to_der(Self) -> @asn1.DerValue
+pub impl Show for AuthorizationDataEntry
+
+#derive(Eq, @debug.Debug)
+pub(all) struct Checksum {
+  cksumtype : Int32
+  checksum : Bytes
+}
+pub fn Checksum::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn Checksum::to_der(Self) -> @asn1.DerValue
+pub impl Show for Checksum
+
+#derive(Eq, @debug.Debug)
+pub(all) struct EncApRepPart {
+  ctime : String
+  cusec : Int32
+  subkey : EncryptionKey?
+  seq_number : UInt32?
+}
+pub fn EncApRepPart::decode(Bytes) -> Self raise @asn1.DerError
+pub fn EncApRepPart::encode(Self) -> Bytes raise @asn1.DerError
+pub fn EncApRepPart::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn EncApRepPart::to_der(Self) -> @asn1.DerValue raise @asn1.DerError
+pub impl Show for EncApRepPart
+
+#derive(Eq, @debug.Debug)
+pub(all) struct EncKdcRepPart {
+  key : EncryptionKey
+  last_req : Array[LastReqEntry]
+  nonce : UInt32
+  key_expiration : String?
+  flags : UInt32
+  authtime : String
+  starttime : String?
+  endtime : String
+  renew_till : String?
+  srealm : String
+  sname : PrincipalName
+  caddr : Array[HostAddress]?
+}
+pub fn EncKdcRepPart::decode_enc_as_rep_part(Bytes) -> Self raise @asn1.DerError
+pub fn EncKdcRepPart::decode_enc_tgs_rep_part(Bytes) -> Self raise @asn1.DerError
+pub fn EncKdcRepPart::encode_enc_as_rep_part(Self) -> Bytes raise @asn1.DerError
+pub fn EncKdcRepPart::encode_enc_tgs_rep_part(Self) -> Bytes raise @asn1.DerError
+pub impl Show for EncKdcRepPart
+
+#derive(Eq, @debug.Debug)
+pub(all) struct EncTicketPart {
+  flags : UInt32
+  key : EncryptionKey
+  crealm : String
+  cname : PrincipalName
+  transited : TransitedEncoding
+  authtime : String
+  starttime : String?
+  endtime : String
+  renew_till : String?
+  caddr : Array[HostAddress]?
+  authorization_data : Array[AuthorizationDataEntry]?
+}
+pub fn EncTicketPart::decode(Bytes) -> Self raise @asn1.DerError
+pub fn EncTicketPart::encode(Self) -> Bytes raise @asn1.DerError
+pub fn EncTicketPart::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn EncTicketPart::to_der(Self) -> @asn1.DerValue raise @asn1.DerError
+pub impl Show for EncTicketPart
+
+#derive(Eq, @debug.Debug)
+pub(all) struct EncryptedData {
+  etype : Int32
+  kvno : UInt32?
+  cipher : Bytes
+}
+pub fn EncryptedData::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn EncryptedData::to_der(Self) -> @asn1.DerValue
+pub impl Show for EncryptedData
+
+#derive(Eq, @debug.Debug)
+pub(all) struct EncryptionKey {
+  keytype : Int32
+  keyvalue : Bytes
+}
+pub fn EncryptionKey::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn EncryptionKey::to_der(Self) -> @asn1.DerValue
+pub impl Show for EncryptionKey
+
+#derive(Eq, @debug.Debug)
+pub(all) struct EtypeInfo2Entry {
+  etype : Int32
+  salt : String?
+  s2kparams : Bytes?
+}
+pub fn EtypeInfo2Entry::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn EtypeInfo2Entry::to_der(Self) -> @asn1.DerValue
+pub impl Show for EtypeInfo2Entry
+
+#derive(Eq, @debug.Debug)
+pub(all) struct HostAddress {
+  addr_type : Int32
+  address : Bytes
+}
+pub fn HostAddress::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn HostAddress::to_der(Self) -> @asn1.DerValue
+pub impl Show for HostAddress
+
+#derive(Eq, @debug.Debug)
+pub(all) struct KdcRep {
+  pvno : Int32
+  msg_type : Int32
+  padata : Array[PaData]?
+  crealm : String
+  cname : PrincipalName
+  ticket : Ticket
+  enc_part : EncryptedData
+}
+pub fn KdcRep::decode_as_rep(Bytes) -> Self raise @asn1.DerError
+pub fn KdcRep::decode_tgs_rep(Bytes) -> Self raise @asn1.DerError
+pub fn KdcRep::encode_as_rep(Self) -> Bytes raise @asn1.DerError
+pub fn KdcRep::encode_tgs_rep(Self) -> Bytes raise @asn1.DerError
+pub impl Show for KdcRep
+
+#derive(Eq, @debug.Debug)
+pub(all) struct KdcReq {
+  pvno : Int32
+  msg_type : Int32
+  padata : Array[PaData]?
+  req_body : KdcReqBody
+}
+pub fn KdcReq::decode_as_req(Bytes) -> Self raise @asn1.DerError
+pub fn KdcReq::decode_tgs_req(Bytes) -> Self raise @asn1.DerError
+pub fn KdcReq::encode_as_req(Self) -> Bytes raise @asn1.DerError
+pub fn KdcReq::encode_tgs_req(Self) -> Bytes raise @asn1.DerError
+pub impl Show for KdcReq
+
+#derive(Eq, @debug.Debug)
+pub(all) struct KdcReqBody {
+  kdc_options : UInt32
+  cname : PrincipalName?
+  realm : String
+  sname : PrincipalName?
+  from : String?
+  till : String
+  rtime : String?
+  nonce : UInt32
+  etype : Array[Int32]
+  addresses : Array[HostAddress]?
+  enc_authorization_data : EncryptedData?
+  additional_tickets : Array[Ticket]?
+}
+pub fn KdcReqBody::decode(Bytes) -> Self raise @asn1.DerError
+pub fn KdcReqBody::encode(Self) -> Bytes raise @asn1.DerError
+pub fn KdcReqBody::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn KdcReqBody::to_der(Self) -> @asn1.DerValue raise @asn1.DerError
+pub impl Show for KdcReqBody
+
+#derive(Eq, @debug.Debug)
+pub(all) struct KrbError {
+  pvno : Int32
+  msg_type : Int32
+  ctime : String?
+  cusec : Int32?
+  stime : String
+  susec : Int32
+  error_code : Int32
+  crealm : String?
+  cname : PrincipalName?
+  realm : String
+  sname : PrincipalName
+  e_text : String?
+  e_data : Bytes?
+}
+pub fn KrbError::decode(Bytes) -> Self raise @asn1.DerError
+pub fn KrbError::encode(Self) -> Bytes raise @asn1.DerError
+pub fn KrbError::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn KrbError::to_der(Self) -> @asn1.DerValue raise @asn1.DerError
+pub impl Show for KrbError
+
+#derive(Eq, @debug.Debug)
+pub(all) struct LastReqEntry {
+  lr_type : Int32
+  lr_value : String
+}
+pub fn LastReqEntry::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn LastReqEntry::to_der(Self) -> @asn1.DerValue raise @asn1.DerError
+pub impl Show for LastReqEntry
+
+#derive(Eq, @debug.Debug)
+pub(all) struct PaData {
+  padata_type : Int32
+  padata_value : Bytes
+}
+pub fn PaData::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn PaData::to_der(Self) -> @asn1.DerValue
+pub impl Show for PaData
+
+#derive(Eq, @debug.Debug)
+pub(all) struct PaEncTsEnc {
+  patimestamp : String
+  pausec : Int32?
+}
+pub fn PaEncTsEnc::decode(Bytes) -> Self raise @asn1.DerError
+pub fn PaEncTsEnc::encode(Self) -> Bytes raise @asn1.DerError
+pub fn PaEncTsEnc::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn PaEncTsEnc::to_der(Self) -> @asn1.DerValue raise @asn1.DerError
+pub impl Show for PaEncTsEnc
+
+#derive(Eq, @debug.Debug)
+pub(all) struct PrincipalName {
+  name_type : Int32
+  name_string : Array[String]
+}
+pub fn PrincipalName::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn PrincipalName::new(Int32, Array[String]) -> Self
+pub fn PrincipalName::service(String, String) -> Self
+pub fn PrincipalName::to_der(Self) -> @asn1.DerValue
+pub fn PrincipalName::to_display(Self) -> String
+pub fn PrincipalName::user(String) -> Self
+pub impl Show for PrincipalName
+
+#derive(Eq, @debug.Debug)
+pub(all) struct Ticket {
+  tkt_vno : Int32
+  realm : String
+  sname : PrincipalName
+  enc_part : EncryptedData
+}
+pub fn Ticket::decode(Bytes) -> Self raise @asn1.DerError
+pub fn Ticket::encode(Self) -> Bytes raise @asn1.DerError
+pub fn Ticket::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn Ticket::to_der(Self) -> @asn1.DerValue raise @asn1.DerError
+pub impl Show for Ticket
+
+#derive(Eq, @debug.Debug)
+pub(all) struct TransitedEncoding {
+  tr_type : Int32
+  contents : Bytes
+}
+pub fn TransitedEncoding::from_der(@asn1.DerValue) -> Self raise @asn1.DerError
+pub fn TransitedEncoding::to_der(Self) -> @asn1.DerValue
+pub impl Show for TransitedEncoding
+
+// Type aliases
+
+// Traits
