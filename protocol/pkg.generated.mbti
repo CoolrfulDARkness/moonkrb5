@@ -1,0 +1,142 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "CoolrfulDARkness/moonkrb5/protocol"
+
+import {
+  "CoolrfulDARkness/moonkrb5/asn1",
+  "CoolrfulDARkness/moonkrb5/crypto",
+  "CoolrfulDARkness/moonkrb5/keytab",
+  "CoolrfulDARkness/moonkrb5/types",
+  "moonbitlang/core/debug",
+}
+
+// Values
+
+// Errors
+#derive(Eq, @debug.Debug)
+pub(all) suberror ProtocolError {
+  Der(@asn1.DerError)
+  Crypto(@crypto.CryptoError)
+  Keytab(@keytab.KeytabError)
+  KrbErrorReceived(code~ : Int32, text~ : String)
+  InvalidState(String)
+  UnexpectedMessage(String)
+  TicketExpired
+  TicketNotYetValid
+  TicketInvalidFlag
+  ClockSkew(Int64)
+  ReplayDetected
+  PrincipalMismatch(String)
+  WrongService(String)
+  KeyNotFound(String)
+  BadKeyVersion
+  ChecksumMismatch
+  NonceMismatch
+  MutualAuthFailed(String)
+  PreauthRequired
+  PreauthFailed(String)
+  UnsupportedEnctype(Int32)
+}
+pub impl Show for ProtocolError
+
+// Types and methods
+#derive(Eq, @debug.Debug)
+pub(all) enum AsStepResult {
+  NeedPreauthRetry(Bytes)
+  GotTgt(Credential)
+}
+pub impl Show for AsStepResult
+
+pub struct Client {
+  // private fields
+}
+pub fn Client::build_ap_req(Self, Credential, Int64, Int32, @crypto.DeterministicRng, mutual_required? : Bool, use_subkey? : Bool) -> Bytes raise ProtocolError
+pub fn Client::build_as_req(Self, Int64, @crypto.DeterministicRng) -> Bytes raise ProtocolError
+pub fn Client::build_tgs_req(Self, @types.PrincipalName, Int64, Int32, @crypto.DeterministicRng, use_subkey? : Bool) -> Bytes raise ProtocolError
+pub fn Client::handle_ap_rep(Self, Bytes) -> @types.EncApRepPart raise ProtocolError
+pub fn Client::handle_as_response(Self, Int64, Int32, @crypto.DeterministicRng, Bytes) -> AsStepResult raise ProtocolError
+pub fn Client::handle_tgs_response(Self, Bytes) -> Credential raise ProtocolError
+pub fn Client::new(@types.PrincipalName, String, Bytes, preferred_etypes? : Array[@crypto.Enctype]) -> Self
+pub fn Client::service_ticket(Self) -> Credential?
+pub fn Client::state(Self) -> ClientState
+pub fn Client::tgt(Self) -> Credential?
+
+#derive(Eq, @debug.Debug)
+pub(all) enum ClientState {
+  Init
+  AwaitingAsRep
+  HasTgt
+  AwaitingTgsRep
+  HasServiceTicket
+  AwaitingApRep
+  Authenticated
+}
+pub impl Show for ClientState
+
+#derive(Eq, @debug.Debug)
+pub(all) struct Credential {
+  client : @types.PrincipalName
+  crealm : String
+  server : @types.PrincipalName
+  srealm : String
+  session_key : @types.EncryptionKey
+  ticket : @types.Ticket
+  authtime : String
+  starttime : String?
+  endtime : String
+  flags : UInt32
+}
+pub impl Show for Credential
+
+pub struct Kdc {
+  // private fields
+}
+pub fn Kdc::add_principal_keys(Self, @types.PrincipalName, UInt32, Array[PrincipalKey]) -> Unit
+pub fn Kdc::add_principal_with_password(Self, @types.PrincipalName, Bytes, Array[@crypto.Enctype], kvno? : UInt32, s2kparams? : Bytes?) -> Unit raise ProtocolError
+pub fn Kdc::export_keytab(Self, @types.PrincipalName, timestamp? : UInt32) -> @keytab.Keytab raise ProtocolError
+pub fn Kdc::handle_as_req(Self, Int64, Int32, @crypto.DeterministicRng, Bytes) -> Bytes
+pub fn Kdc::handle_message(Self, Int64, Int32, @crypto.DeterministicRng, Bytes) -> Bytes
+pub fn Kdc::handle_tgs_req(Self, Int64, Int32, @crypto.DeterministicRng, Bytes) -> Bytes
+pub fn Kdc::new(String, Array[PrincipalKey], require_preauth? : Bool, max_skew_secs? : Int64, default_lifetime_secs? : Int64) -> Self
+
+#derive(Eq, @debug.Debug)
+pub(all) struct PrincipalKey {
+  etype : @crypto.Enctype
+  key : Bytes
+  salt : String
+  s2kparams : Bytes?
+}
+pub impl Show for PrincipalKey
+
+pub struct ReplayCache {
+  // private fields
+}
+pub fn ReplayCache::check_and_insert(Self, Int64, String, @types.PrincipalName, String, Int32) -> Unit raise ProtocolError
+pub fn ReplayCache::len(Self) -> Int32
+pub fn ReplayCache::new(max_skew_secs? : Int64) -> Self
+pub fn ReplayCache::prune(Self, Int64) -> Unit
+
+pub struct Service {
+  // private fields
+}
+pub fn Service::make_krb_error(Self, Int64, Int32, Int32, String) -> Bytes raise ProtocolError
+pub fn Service::new(String, @types.PrincipalName, @keytab.Keytab, max_skew_secs? : Int64) -> Self
+pub fn Service::verify_ap_req(Self, Int64, @crypto.DeterministicRng, Bytes) -> VerifiedAuth raise ProtocolError
+
+#derive(Eq, @debug.Debug)
+pub(all) struct VerifiedAuth {
+  client : @types.PrincipalName
+  crealm : String
+  session_key : @types.EncryptionKey
+  subkey : @types.EncryptionKey?
+  authtime : String
+  endtime : String
+  ctime : String
+  cusec : Int32
+  mutual_required : Bool
+  ap_rep_der : Bytes?
+}
+pub impl Show for VerifiedAuth
+
+// Type aliases
+
+// Traits
