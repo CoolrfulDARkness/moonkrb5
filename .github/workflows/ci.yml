@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    name: Format, Multi-Target Check, Test, Bench & CLI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js (for JS target)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Ensure C toolchain (GCC/Clang for native target)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential clang
+          gcc --version
+
+      - name: Install MoonBit CLI
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+          "$HOME/.moon/bin/moon" version
+
+      - name: Check formatting
+        run: moon fmt --check
+
+      - name: Check all targets (zero warnings with -d)
+        run: |
+          moon check --target wasm -d
+          moon check --target wasm-gc -d
+          moon check --target js -d
+          moon check --target native -d
+
+      - name: Run full test suite (wasm-gc, js, native)
+        run: |
+          moon test --target wasm-gc -d
+          moon test --target js -d
+          moon test --target native -d
+
+      - name: Verify benchmarks build (wasm-gc)
+        run: moon bench --target wasm-gc --build-only -d
+
+      - name: Run CLI end-to-end demo (wasm-gc, js, native)
+        run: |
+          moon run --target wasm-gc cmd/main
+          moon run --target js cmd/main
+          moon run --target native cmd/main
